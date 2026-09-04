@@ -31,6 +31,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Build Next.js app
+        env:
+          SKIP_ENV_VALIDATION: '1'
         run: npm run build
 
       - name: Run E2E tests
