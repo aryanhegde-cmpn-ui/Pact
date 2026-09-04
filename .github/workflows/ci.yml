@@ -38,4 +38,6 @@ jobs:
         run: npm test -- --run
 
       - name: Build
+        env:
+          SKIP_ENV_VALIDATION: '1'
         run: npm run build
