@@ -1,145 +1,163 @@
-# Personal Accountability Dashboard
+# Pact
 
-A personal command center designed to make procrastination, missed commitments, and recurring patterns of avoidance visible.
+A personal execution dashboard for one user.
 
-This is not meant to be another passive task-management app.
+Google Tasks holds what you said you would do. This holds whether you actually
+did it.
 
-The goal is simple:
+Most productivity tools help you **organise** work. This one is about
+**executing** it — a task shouldn't quietly disappear when its deadline passes.
+The dashboard exists to answer the uncomfortable questions: what did I commit
+to, did I do it, how many times has this been rescheduled, and what am I
+currently avoiding?
 
-> If I say I will do something, the system should remember it, check whether I actually did it, and make me confront the pattern when I repeatedly don't.
+Google Tasks stays the execution store — it's already on your phone and in your
+calendar. This app is the behavioural intelligence layer over it, plus a study
+planner.
 
-## Why This Exists
+> Every feature faces one test: **does this increase the probability that the
+> user actually does the thing?** Anything that fails goes in
+> [`docs/rejected.md`](docs/rejected.md) with a reason instead of being built.
+> See [`CLAUDE.md`](CLAUDE.md) for the full rules, including the hard
+> anti-features (no points, streaks, badges or confetti — and why).
 
-Most productivity tools help you **organize** work.
+## Surfaces
 
-This project is focused on helping you **actually execute** it.
+| Route         | What it is                                         |
+| ------------- | -------------------------------------------------- |
+| `/`           | Landing and sign-in entry point                    |
+| `/dashboard`  | The interactive surface                            |
+| `/mirror`     | Read-only display for a wall-mounted smart mirror  |
+| `/study`      | Study planner                                      |
+| `/api/health` | Deploy check — database, environment, commit, time |
 
-A task shouldn't simply disappear when its deadline passes.
+## Stack
 
-Instead, the system should answer:
+Next.js (App Router) · TypeScript (strict) · Tailwind CSS v4 · TanStack Query ·
+Mongoose + MongoDB Atlas · Zod · Vitest · ESLint + Prettier.
 
-- What did I commit to?
-- When did I commit to doing it?
-- Did I actually do it?
-- If not, why not?
-- What is the new deadline?
-- How many times has this happened before?
-- Am I consistently underestimating certain types of work?
-- What commitments am I currently avoiding?
-- Am I making progress or simply moving deadlines around?
+Deployed on Vercel Hobby, which means no background workers and one daily cron
+— see [`docs/decisions.md`](docs/decisions.md).
 
-The dashboard should make these patterns difficult to ignore.
+## Status
 
-## Core Philosophy
+**Scaffold and tooling only.** No authentication, no Google APIs, no features.
+The four routes render stubs. Auth lands in the next change.
 
-### 1. Commitments over intentions
+## Local setup
 
-A task is treated as a commitment with an owner, deadline, and expected outcome.
+Requires **Node 20.9+** (`.nvmrc` is not used; `node --version` should satisfy
+the `engines` field in `package.json`).
 
-### 2. Accountability over aesthetics
+### 1. Install
 
-The interface should prioritize useful feedback and behavioral visibility over unnecessary visual polish.
+```bash
+npm install
+```
 
-### 3. Failure should create information
+### 2. Configure the environment
 
-Missing a deadline isn't the end of the workflow.
+```bash
+cp .env.example .env.local
+```
 
-A missed commitment should produce useful data:
+Then fill in `.env.local`. Every variable is required — they are validated with
+Zod at module load, and the app refuses to start while any are missing, naming
+each one.
 
-- Reason for failure
-- Amount of delay
-- Whether the task was rescheduled
-- Previous attempts
-- Recurring failure patterns
+| Variable                                    | Where it comes from                                                                                                                                                               |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`                               | Atlas → your cluster → Connect → Drivers. The M0 free tier is enough.                                                                                                             |
+| `NEXTAUTH_SECRET`                           | `openssl rand -base64 32`                                                                                                                                                         |
+| `NEXTAUTH_URL`                              | `http://localhost:3000` locally; the deployment URL on Vercel.                                                                                                                    |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Web application). Add `http://localhost:3000/api/auth/callback/google` as an authorised redirect URI. |
+| `ALLOWED_EMAIL`                             | Your Google account. It is the only one permitted to sign in.                                                                                                                     |
+| `MIRROR_DEVICE_TOKEN`                       | `openssl rand -hex 32`. The mirror device presents this instead of a session.                                                                                                     |
+| `CRON_SECRET`                               | `openssl rand -hex 32`. Vercel Cron presents this on scheduled invocations.                                                                                                       |
+| `APP_TIMEZONE`                              | Defaults to `Asia/Kolkata`. Any IANA zone.                                                                                                                                        |
 
-### 4. Rescheduling is not completion
+The OAuth and cron values are not used yet — auth arrives in the next change —
+but the schema requires them so a deploy cannot get halfway configured.
 
-Moving a deadline should not make the original commitment disappear.
+### 3. Atlas network access
 
-The system should preserve the history.
+Atlas blocks connections by default. In **Network Access**, allow your IP for
+local development. For the Vercel deployment you need `0.0.0.0/0`, because
+Vercel's serverless functions do not have stable outbound IPs on Hobby.
 
-### 5. Patterns matter more than individual tasks
+### 4. Run
 
-One missed task may be normal.
+```bash
+npm run dev
+```
 
-Repeated behavior is what the dashboard should expose.
+This opens <http://localhost:3000> in your browser as soon as the server is
+actually listening. Suppress it with `npm run dev:no-open`, `BROWSER=none`, or
+`npm run dev -- --no-open`. Arguments are forwarded, so `npm run dev -- -p 4000`
+works and the browser follows the port.
 
-## Planned Features
+Then check <http://localhost:3000/api/health>. A green result looks like:
 
-### Task & Commitment Management
+```json
+{ "status": "ok", "database": { "status": "connected" } }
+```
 
-- Create commitments
-- Deadlines
-- Priority
-- Categories
-- Estimated effort
-- Actual effort
-- Recurring commitments
-- Dependencies
-- Notes and remarks
+If the database is unreachable the endpoint returns **503** with the reason in
+`database.message` — usually a missing Atlas IP allowlist entry or bad
+credentials.
 
-### Accountability Workflow
+## Scripts
 
-When a deadline passes:
+| Command               | What it does                                                     |
+| --------------------- | ---------------------------------------------------------------- |
+| `npm run dev`         | Development server on :3000, opens your browser once it is ready |
+| `npm run dev:no-open` | Same, without launching a browser                                |
+| `npm run build`       | Production build                                                 |
+| `npm start`           | Serve the production build                                       |
+| `npm test`            | Run the Vitest suite once                                        |
+| `npm run test:watch`  | Vitest in watch mode                                             |
+| `npm run typecheck`   | `tsc --noEmit`                                                   |
+| `npm run lint`        | ESLint                                                           |
+| `npm run format`      | Prettier, writing in place                                       |
 
-1. Ask whether the commitment was completed.
-2. If completed, record the completion.
-3. If not completed, require a reason.
-4. Ask for a new realistic deadline.
-5. Record the delay.
-6. Preserve the previous deadline and history.
+No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
-### Behavioral Insights
+## Deploying to Vercel
 
-The dashboard should eventually identify patterns such as:
+1. Import the repository as a new Vercel project. The framework is detected
+   from [`vercel.json`](vercel.json); no build settings need changing.
+2. Add every variable from `.env.example` under **Settings → Environment
+   Variables**, for Production and Preview. A missing one fails the build
+   loudly, which is intentional.
+3. Set `NEXTAUTH_URL` to the deployment URL.
+4. Allow `0.0.0.0/0` in Atlas Network Access.
+5. Confirm the deploy with `/api/health` — it needs no authentication and
+   reports the commit SHA, so you can verify _which_ build you are looking at.
 
-- Frequently missed deadlines
-- Chronic rescheduling
-- Consistent underestimation of effort
-- Tasks repeatedly avoided
-- Categories with poor completion rates
-- Time-of-day productivity patterns
-- Weekly/monthly execution trends
+## Layout
 
-### Daily Command Center
+```
+src/app/            routes
+src/app/(shell)/    routes rendered inside the nav shell
+src/app/api/        route handlers
+src/lib/db/         mongoose connection + models
+src/lib/schemas/    zod schemas — the source of truth for types
+src/lib/behavior/   pure analysis functions, no I/O
+src/components/
+src/styles/         design tokens + global stylesheet
+scripts/            dev tooling
+docs/
+```
 
-The main dashboard should answer:
+`/mirror` sits outside `(shell)` so it renders bare, with no navigation.
 
-> "What do I need to do right now, and what am I currently failing to deal with?"
+## Contributing
 
-Potential sections include:
+Read [`CLAUDE.md`](CLAUDE.md) first — it defines the data-ownership boundary
+with Google Tasks, the event-log rule, and the anti-features that are never to
+be built.
 
-- Today's commitments
-- Overdue commitments
-- Upcoming deadlines
-- Recently missed commitments
-- Commitments requiring a response
-- Current streaks
-- Execution statistics
-- Accountability alerts
-
-## Data Source
-
-The initial implementation is expected to use the **Google Tasks API** as the task/commitment data source.
-
-The application may maintain additional metadata required for accountability and historical analysis where Google Tasks alone is insufficient.
-
-## Tech Stack
-
-Planned stack:
-
-- React
-- TypeScript
-- Vite
-- Google Tasks API
-- Modern CSS / component system
-- Client-side state management where required
-
-The exact architecture may evolve as the application grows.
-
-## Development Workflow
-
-The repository uses a protected branch workflow.
+Branch workflow:
 
 ```text
 main
@@ -149,3 +167,8 @@ Pull Request
 dev
  ↑
 feature/*
+```
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).

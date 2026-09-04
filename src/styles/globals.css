@@ -1,0 +1,70 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/*
+ * Clear Tailwind's stock scales. The default palette in particular is banned:
+ * every colour in this app has to come from the five tokens, so `bg-slate-800`
+ * and friends must not resolve to anything.
+ */
+@theme {
+  --color-*: initial;
+  --text-*: initial;
+  --breakpoint-*: initial;
+  --font-*: initial;
+}
+
+/* `inline` so the utilities reference the custom properties rather than copying
+   their values, keeping tokens.css the single place a token is defined. */
+@theme inline {
+  --color-base: var(--pact-base);
+  --color-surface: var(--pact-surface);
+  --color-edge: var(--pact-edge);
+  --color-text: var(--pact-text);
+  --color-signal: var(--pact-signal);
+
+  --font-sans: var(--pact-font-sans);
+  --font-mono: var(--pact-font-mono);
+
+  --text-xs: var(--pact-text-xs);
+  --text-sm: var(--pact-text-sm);
+  --text-base: var(--pact-text-base);
+  --text-lg: var(--pact-text-lg);
+  --text-xl: var(--pact-text-xl);
+  --text-2xl: var(--pact-text-2xl);
+  --text-3xl: var(--pact-text-3xl);
+
+  --leading-tight: var(--pact-leading-tight);
+  --leading-normal: var(--pact-leading-normal);
+
+  /* Named steps alongside Tailwind's numeric spacing (p-4, gap-2, ...). */
+  --spacing-2xs: var(--pact-space-2xs);
+  --spacing-xs: var(--pact-space-xs);
+  --spacing-sm: var(--pact-space-sm);
+  --spacing-md: var(--pact-space-md);
+  --spacing-lg: var(--pact-space-lg);
+  --spacing-xl: var(--pact-space-xl);
+  --spacing-2xl: var(--pact-space-2xl);
+  --spacing-3xl: var(--pact-space-3xl);
+
+  --breakpoint-sm: 640px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1440px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--pact-base);
+    color: var(--pact-text);
+    font-family: var(--pact-font-sans);
+    line-height: var(--pact-leading-normal);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--pact-signal);
+    outline-offset: 2px;
+  }
+}
