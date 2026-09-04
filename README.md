@@ -57,13 +57,12 @@ npm install
 
 ### 2. Configure the environment
 
-```bash
-cp .env.example .env.local
-```
+Create `.env.local` in the repository root with the variables below. Every one
+is required — they are validated with Zod at module load, and the app refuses to
+start while any are missing, naming each one.
 
-Then fill in `.env.local`. Every variable is required — they are validated with
-Zod at module load, and the app refuses to start while any are missing, naming
-each one.
+A blank value counts as unset: `NEXTAUTH_SECRET=""` will not satisfy the
+requirement.
 
 | Variable                                    | Where it comes from                                                                                                                                                               |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -126,9 +125,15 @@ No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
 1. Import the repository as a new Vercel project. The framework is detected
    from [`vercel.json`](vercel.json); no build settings need changing.
-2. Add every variable from `.env.example` under **Settings → Environment
+2. Add every variable from the table above under **Settings → Environment
    Variables**, for Production and Preview. A missing one fails the build
    loudly, which is intentional.
+
+   **Paste a value for each one.** Creating the variable and leaving the value
+   blank is the easy mistake here — the dashboard shows the name either way, so
+   it looks configured. A blank value is treated as unset, and the build error
+   says `set, but the value is empty` to tell the two apart.
+
 3. Set `NEXTAUTH_URL` to the deployment URL.
 4. Allow `0.0.0.0/0` in Atlas Network Access.
 5. Confirm the deploy with `/api/health` — it needs no authentication and
