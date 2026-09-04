@@ -1,17 +1,32 @@
 import 'server-only';
 
-import { envSchema, formatEnvError, type Env } from '@/lib/schemas/env';
+import { envSchema, formatEnvError, readEnv, type Env } from '@/lib/schemas/env';
 
 /**
  * Validated process environment.
  *
  * Evaluated at module load: importing this module in a misconfigured
- * environment throws immediately, naming every missing or invalid variable.
+ * environment throws immediately, naming every missing or invalid variable,
+ * rather than failing later at whichever request first needed a value.
  */
 function loadEnv(): Env {
-  const parsed = envSchema.safeParse(process.env);
+  if (process.env.SKIP_ENV_VALIDATION) {
+    // `next build` evaluates this module while collecting page data, so a CI
+    // job that only compiles and tests would otherwise need production secrets
+    // just to type-check. Opt-in, and never set on a running deployment --
+    // whatever serves traffic still validates on boot.
+    console.warn(
+      '[env] SKIP_ENV_VALIDATION is set: environment not validated. ' +
+        'Expected during a build; a bug anywhere else.',
+    );
+    return process.env as unknown as Env;
+  }
+
+  const parsed = envSchema.safeParse(readEnv(process.env));
 
   if (!parsed.success) {
+    // Report against the untouched environment so the message can distinguish
+    // an unset variable from one that was set to an empty value.
     throw new Error(formatEnvError(parsed.error, process.env));
   }
 

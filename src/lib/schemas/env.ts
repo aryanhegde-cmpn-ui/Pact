@@ -48,30 +48,66 @@ function isValidTimeZone(value: string): boolean {
 }
 
 /**
+ * Hosting dashboards and CI systems commonly hand a *declared but unfilled*
+ * variable through as an empty string rather than omitting it. Left alone that
+ * is actively harmful: an empty `APP_TIMEZONE` suppresses its own `.default()`,
+ * and an empty `MONGODB_URI` trips both its length check and its format check,
+ * so one blank field reports as two separate errors.
+ *
+ * Treat blank as absent, which is what the operator meant.
+ */
+export function readEnv(source: Record<string, string | undefined>): Record<string, string> {
+  const cleaned: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'string' && value.trim() !== '') {
+      cleaned[key] = value;
+    }
+  }
+
+  return cleaned;
+}
+
+/**
  * Formats a Zod failure into an operator-readable list naming every offending
  * variable. Thrown at module load so a misconfigured deploy dies immediately
  * and visibly rather than at the first request that happens to need a value.
  *
- * `input` is the raw source object. A variable that is simply absent is
- * reported as "missing" rather than as whatever validation happened to trip
- * first, which otherwise produces misleading advice like telling you to fix the
- * format of a value you never set.
+ * `rawSource` is the untouched environment, which is what lets the message
+ * separate "you never set this" from "you created the variable and left the
+ * value blank" -- the two have completely different fixes, and the second is
+ * invisible in a hosting dashboard.
  */
-export function formatEnvError(error: z.ZodError<unknown>, input?: unknown): string {
-  const source = (input ?? {}) as Record<string, unknown>;
+export function formatEnvError(error: z.ZodError<unknown>, rawSource?: unknown): string {
+  const raw = (rawSource ?? {}) as Record<string, unknown>;
+  const seen = new Set<string>();
+  const lines: string[] = [];
 
-  const lines = error.issues.map((issue) => {
+  for (const issue of error.issues) {
     const name = issue.path.join('.') || '(root)';
-    const value = typeof name === 'string' ? source[name] : undefined;
-    const absent = value === undefined || value === '';
+    // One line per variable: several checks can fail on a single bad value.
+    if (seen.has(name)) continue;
+    seen.add(name);
 
-    return `  - ${name}: ${absent ? 'missing' : issue.message}`;
-  });
+    const value = raw[name];
+    const reason =
+      value === undefined
+        ? 'missing'
+        : typeof value === 'string' && value.trim() === ''
+          ? 'set, but the value is empty'
+          : issue.message;
+
+    lines.push(`  - ${name}: ${reason}`);
+  }
 
   return [
     'Invalid environment configuration. The following variables are missing or invalid:',
     ...lines,
     '',
-    'Copy .env.example to .env.local and fill in the values above.',
+    'Local development: set these in .env.local -- the README lists where each',
+    'value comes from.',
+    'Vercel: Settings > Environment Variables, for the environment being built',
+    '(Production, Preview and Development are configured separately).',
+    'CI that only compiles and tests can set SKIP_ENV_VALIDATION=1 instead.',
   ].join('\n');
 }
