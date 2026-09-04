@@ -1,0 +1,52 @@
+/*
+ * Design tokens.
+ *
+ * The palette is deliberately five values. Constraint is the point: with no
+ * spare colours there is nowhere to put decoration, which keeps the surfaces
+ * honest. Dark is the only theme -- this app is read at a desk at night and on
+ * a wall-mounted mirror.
+ *
+ * Consumed by Tailwind through the `@theme inline` block in globals.css. Add a
+ * token here first, then map it there; never hardcode a hex in a component.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Palette (5) ---------------------------------------------------- */
+  --pact-base: #0b0d10; /* page ground */
+  --pact-surface: #14181d; /* panels, cards, raised areas */
+  --pact-edge: #262d35; /* borders, dividers, inactive strokes */
+  --pact-text: #e6eaef; /* foreground; dim with /60, /40 as needed */
+  --pact-signal: #d8763a; /* attention. Never a reward, never a celebration. */
+
+  /* ---- Type scale ----------------------------------------------------- */
+  --pact-text-xs: 0.75rem; /* 12px - metadata, timestamps */
+  --pact-text-sm: 0.875rem; /* 14px - secondary text */
+  --pact-text-base: 1rem; /* 16px - body */
+  --pact-text-lg: 1.125rem; /* 18px - emphasised body */
+  --pact-text-xl: 1.375rem; /* 22px - section headings */
+  --pact-text-2xl: 1.75rem; /* 28px - page headings */
+  --pact-text-3xl: 2.25rem; /* 36px - mirror-surface display */
+
+  --pact-leading-tight: 1.2;
+  --pact-leading-normal: 1.55;
+
+  /* ---- Spacing scale -------------------------------------------------- */
+  --pact-space-2xs: 0.25rem; /*  4px */
+  --pact-space-xs: 0.5rem; /*  8px */
+  --pact-space-sm: 0.75rem; /* 12px */
+  --pact-space-md: 1rem; /* 16px */
+  --pact-space-lg: 1.5rem; /* 24px */
+  --pact-space-xl: 2rem; /* 32px */
+  --pact-space-2xl: 3rem; /* 48px */
+  --pact-space-3xl: 4rem; /* 64px */
+
+  /* ---- Type family ---------------------------------------------------- */
+  /* System stack: no webfont fetch at build time, no layout shift at runtime. */
+  --pact-font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+  --pact-font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
