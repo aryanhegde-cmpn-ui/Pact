@@ -153,9 +153,19 @@ will exhaust the pool and take the app down.
   [`src/lib/time.ts`](src/lib/time.ts).
 - **No network calls in tests.** Mock at the module boundary. A test that needs
   Atlas or the Google API is not a test we run.
-- **Environment variables are validated at module load** in
-  [`src/lib/env.ts`](src/lib/env.ts) and the process dies loudly, naming every
-  missing variable, rather than failing later at a random request.
+- **Environment variables are validated on first use**, via `getEnv()` in
+  [`src/lib/env.ts`](src/lib/env.ts), which throws loudly and names every
+  missing or invalid variable rather than failing later at a random request.
+  Validation is deliberately **not** done at module load: `next build` imports
+  every route module to collect its segment config, so validating on import
+  makes the compile step demand production secrets it never uses, and the build
+  dies. Never move this back to module scope, and never read a value from
+  `process.env` directly to work around it.
+
+  A blank value counts as unset, because that is what a hosting dashboard or CI
+  produces for a variable declared without a value. `SKIP_ENV_VALIDATION=1`
+  bypasses the check for jobs that only compile and test.
+
 - TypeScript is `strict`, plus `noUncheckedIndexedAccess`. Do not weaken it.
 
 ## Layout

@@ -2,7 +2,7 @@ import 'server-only';
 
 import mongoose, { type Mongoose } from 'mongoose';
 
-import { env } from '@/lib/env';
+import { getEnv } from '@/lib/env';
 
 interface MongooseCache {
   conn: Mongoose | null;
@@ -38,7 +38,7 @@ export async function connectToDatabase(): Promise<Mongoose> {
   }
 
   if (!cache.promise) {
-    cache.promise = mongoose.connect(env.MONGODB_URI, {
+    cache.promise = mongoose.connect(getEnv().MONGODB_URI, {
       // Fail fast instead of silently queueing operations against a dead socket;
       // a serverless function has no time to spend waiting.
       bufferCommands: false,

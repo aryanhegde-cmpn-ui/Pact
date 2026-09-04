@@ -58,8 +58,10 @@ npm install
 ### 2. Configure the environment
 
 Create `.env.local` in the repository root with the variables below. Every one
-is required — they are validated with Zod at module load, and the app refuses to
-start while any are missing, naming each one.
+is required — they are validated with Zod on first use, and the app refuses to
+serve a request while any are missing, naming each one. `/api/health` reports
+the same list as `"status": "misconfigured"`, so a deploy tells you what is
+wrong instead of just failing.
 
 A blank value counts as unset: `NEXTAUTH_SECRET=""` will not satisfy the
 requirement.

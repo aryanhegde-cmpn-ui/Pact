@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * `src/lib/env.ts` validates at module load, so every case here has to import
- * it fresh under a different environment.
- */
+import { __resetEnvCacheForTests, EnvironmentError, getEnv } from './env';
+
 const REQUIRED = [
   'MONGODB_URI',
   'NEXTAUTH_SECRET',
@@ -18,52 +16,64 @@ const REQUIRED = [
 const original = { ...process.env };
 
 beforeEach(() => {
-  vi.resetModules();
+  __resetEnvCacheForTests();
 });
 
 afterEach(() => {
   process.env = { ...original };
+  __resetEnvCacheForTests();
   vi.restoreAllMocks();
 });
 
-describe('env module load', () => {
-  it('loads a valid environment', async () => {
-    const { env } = await import('./env');
-
-    expect(env.APP_TIMEZONE).toBe('Asia/Kolkata');
-    expect(env.MONGODB_URI).toContain('mongodb://');
+describe('getEnv', () => {
+  it('returns the validated environment', () => {
+    expect(getEnv().APP_TIMEZONE).toBe('Asia/Kolkata');
   });
 
-  it('throws naming every variable when the environment is blank', async () => {
-    // The exact shape a hosting dashboard produces when the variables were
-    // created but no value was pasted.
+  it('memoises, so repeated access validates once', () => {
+    const first = getEnv();
+
+    expect(getEnv()).toBe(first);
+  });
+
+  it('reports blank values distinctly from missing ones', () => {
+    // The exact shape Vercel produces for a variable created without a value.
     for (const name of REQUIRED) process.env[name] = '';
-    process.env.APP_TIMEZONE = '';
+    delete process.env.NEXTAUTH_SECRET;
 
-    await expect(import('./env')).rejects.toThrow(/set, but the value is empty/);
+    expect(() => getEnv()).toThrow(EnvironmentError);
+    try {
+      getEnv();
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain('MONGODB_URI: set, but the value is empty');
+      expect(message).toContain('NEXTAUTH_SECRET: missing');
+      // APP_TIMEZONE has a default, so a blank value must not be reported.
+      expect(message).not.toContain('APP_TIMEZONE');
+    }
   });
 
-  it('does not report APP_TIMEZONE when it is blank, because it has a default', async () => {
-    for (const name of REQUIRED) process.env[name] = '';
-    process.env.APP_TIMEZONE = '';
-
-    await expect(import('./env')).rejects.not.toThrow(/APP_TIMEZONE/);
-  });
-
-  it('skips validation when SKIP_ENV_VALIDATION is set, so CI can build', async () => {
+  it('skips validation when SKIP_ENV_VALIDATION is set', () => {
     for (const name of REQUIRED) delete process.env[name];
     process.env.SKIP_ENV_VALIDATION = '1';
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(import('./env')).resolves.toBeDefined();
-    // Silently skipping would be worse than failing; the log has to say so.
+    expect(() => getEnv()).not.toThrow();
+    // Skipping silently would be worse than failing.
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('SKIP_ENV_VALIDATION'));
   });
+});
 
-  it('still validates when SKIP_ENV_VALIDATION is absent', async () => {
-    for (const name of REQUIRED) delete process.env[name];
-    delete process.env.SKIP_ENV_VALIDATION;
+describe('build safety', () => {
+  it('does not validate on import, so next build can collect page data', async () => {
+    // This is the regression that broke the Vercel deploy: importing a route
+    // module must not demand production secrets. `next build` imports every
+    // route to read its segment config without ever calling a handler.
+    for (const name of REQUIRED) process.env[name] = '';
+    vi.resetModules();
 
-    await expect(import('./env')).rejects.toThrow(/Invalid environment configuration/);
+    await expect(import('./env')).resolves.toBeDefined();
+    await expect(import('./db/mongoose')).resolves.toBeDefined();
+    await expect(import('../app/api/health/route')).resolves.toBeDefined();
   });
 });
