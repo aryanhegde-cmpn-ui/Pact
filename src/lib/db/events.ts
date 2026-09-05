@@ -47,6 +47,9 @@ export async function appendEvent(input: AppendEventInput): Promise<AppendResult
       entityId: parsed.entityId,
       payload: parsed.payload ?? {},
       source: parsed.source,
+      // Only set on synthetic rows, so the field stays absent on real history
+      // and the sparse index the purge uses stays small.
+      ...(parsed.source === 'seed' ? { synthetic: true } : {}),
     });
 
     return { appended: true, type: parsed.type };

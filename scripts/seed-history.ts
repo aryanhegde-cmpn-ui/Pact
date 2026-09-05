@@ -3,7 +3,10 @@
  *
  *   npm run seed:history                        60 days, mixed patterns
  *   npm run seed:history -- --pattern chronic-postponer --days 90
- *   npm run seed:history -- --reset             drop and regenerate
+ *   npm run seed:history -- --reset             purge synthetic rows first
+ *
+ * `--reset` removes only rows marked `synthetic: true`, and refuses to run
+ * against a connection string that is not recognisably a scratch database.
  *
  * The patterns matter more than the volume: a uniform random history teaches
  * the engine nothing, because its job is recognising shapes of failure.
@@ -13,6 +16,7 @@ import './load-env';
 import mongoose from 'mongoose';
 
 import { seedHistory, type PatternName } from '@/lib/commitments/seed-history';
+import { assertSafeToMutate, describeUri } from '@/lib/db/guard-uri';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getEnv } from '@/lib/env';
 
@@ -29,25 +33,26 @@ function readArg(name: string): string | undefined {
 }
 
 /**
- * Drops the collections outright.
+ * Removes only rows this script created.
  *
- * A reset, not an edit: there is deliberately no selective delete against the
- * event log anywhere in `src/`, because an append-only guarantee with an
- * exception is not a guarantee. Refuses to run against production.
+ * Targeted at `synthetic: true` rather than dropping collections, so a run
+ * against a database that also holds real history cannot take it with it. The
+ * event log has no delete path anywhere in `src/` -- this lives in a script and
+ * goes through the driver deliberately, because an append-only guarantee with
+ * an exception inside the application is not a guarantee.
  */
-async function reset(): Promise<void> {
-  const environment = process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'development';
-  if (environment === 'production') {
-    throw new Error('Refusing to --reset a production database.');
-  }
-
+async function purgeSynthetic(): Promise<void> {
   const db = mongoose.connection.db;
   if (!db) throw new Error('Not connected.');
 
+  let removed = 0;
   for (const name of ['commitments', 'events', 'series']) {
-    await db.collection(name).deleteMany({});
+    const result = await db.collection(name).deleteMany({ synthetic: true });
+    removed += result.deletedCount ?? 0;
+    console.log(`  ${name.padEnd(14)} ${result.deletedCount ?? 0} synthetic rows removed`);
   }
-  console.log('Cleared commitments, events and series.');
+
+  if (removed === 0) console.log('  (nothing synthetic to remove)');
 }
 
 async function main(): Promise<void> {
@@ -64,10 +69,16 @@ async function main(): Promise<void> {
     throw new Error('--days must be a whole number between 1 and 365.');
   }
 
-  const timeZone = getEnv().APP_TIMEZONE;
+  const env = getEnv();
+  const timeZone = env.APP_TIMEZONE;
   await connectToDatabase();
 
-  if (process.argv.includes('--reset')) await reset();
+  if (process.argv.includes('--reset')) {
+    // Checked against the connection string, not NODE_ENV.
+    assertSafeToMutate(env.MONGODB_URI, 'seed:history --reset');
+    console.log(`Purging synthetic rows from ${describeUri(env.MONGODB_URI)}...`);
+    await purgeSynthetic();
+  }
 
   console.log(`Seeding ${days} days of "${pattern}" history (~${perDay}/day, ${timeZone})...`);
   const summary = await seedHistory({ pattern, days, perDay, timeZone, seed });

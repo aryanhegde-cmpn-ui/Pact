@@ -3,6 +3,9 @@
 import { useCallback, useState } from 'react';
 
 import type { CommitmentView } from '@/lib/commitments/service';
+import { InstallPrompt } from '@/components/pwa/install-prompt';
+import { NotificationPermission } from '@/components/pwa/notification-permission';
+import { StalenessBanner } from '@/components/pwa/staleness-banner';
 import { CommitmentRow } from './commitment-row';
 import { CreateCommitmentForm } from './create-form';
 
@@ -24,6 +27,8 @@ export function CommitmentList({
 }): React.JSX.Element {
   const [data, setData] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
+  /** Set when the service worker served this from cache. Null means live. */
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setRefreshing(true);
@@ -37,7 +42,19 @@ export function CommitmentList({
           overdue: CommitmentView[];
         };
         setData({ commitments: body.commitments, overdue: body.overdue });
+        // The worker sets these when it falls back to cache. Never assume a
+        // 200 means fresh -- that is exactly how stale deadlines get shown as
+        // current.
+        setCachedAt(
+          response.headers.get('x-pact-stale') === 'true'
+            ? (response.headers.get('x-pact-cached-at') ?? new Date().toISOString())
+            : null,
+        );
       }
+    } catch {
+      // The request failed outright, so what is on screen is whatever was last
+      // loaded. Say so rather than leaving it looking live.
+      setCachedAt((previous) => previous ?? new Date().toISOString());
     } finally {
       setRefreshing(false);
     }
@@ -46,9 +63,17 @@ export function CommitmentList({
   const open = data.commitments.filter((c) => c.status === 'pending' || c.status === 'in-progress');
   const closed = data.commitments.filter((c) => c.status === 'done' || c.status === 'abandoned');
 
+  const totalCommitments = data.commitments.length + data.overdue.length;
+
   return (
     <div className="flex flex-col gap-xl">
+      <StalenessBanner cachedAt={cachedAt} onRetry={() => void reload()} />
+
       <CreateCommitmentForm timeZone={timeZone} onCreated={() => void reload()} />
+
+      {/* Only once there is something worth being interrupted about. */}
+      <NotificationPermission commitmentCount={totalCommitments} />
+      <InstallPrompt />
 
       {data.overdue.length > 0 ? (
         <section aria-labelledby="overdue-heading">

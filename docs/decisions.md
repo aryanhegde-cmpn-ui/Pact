@@ -298,3 +298,77 @@ had been duplicated across the proxy, the landing page and the sign-in form,
 and every copy missed `/\evil.com` — a protocol-relative redirect written with
 a backslash, which browsers fold to `/` but a `startsWith('//')` check does
 not. One implementation, allow-list shaped, used by all three.
+
+## 009 — DEADLINE_MISSED is unique per deadline, not per commitment
+
+**Date:** 2026-09-05
+**Status:** Accepted — corrects the key introduced in feat/commitment-model
+
+### Decision
+
+The unique partial index enforcing one `DEADLINE_MISSED` per commitment is
+keyed on `(entityId, type, ts)` rather than `(entityId, type)`. For this event
+type `ts` is the missed deadline, so each distinct deadline can be missed
+exactly once.
+
+### Why
+
+The original key permitted one miss per commitment **for its entire life**. A
+commitment missed on Monday, postponed, and missed again on Friday recorded the
+first and silently dropped the second — `appendEvent` treats the duplicate-key
+error as success, so nothing failed and nothing was logged.
+
+That is not a small loss. Repeated misses against a moving deadline are the
+single clearest signal this product exists to surface, and the bug flattened a
+chronic postponer into someone who slipped once.
+
+Keying on `ts` needs no schema change, because miss events are already
+timestamped at the deadline rather than at the moment a read noticed them.
+Concurrency safety is unchanged: invocations observing the _same_ deadline
+produce the same `ts` and still collapse to one row.
+
+### Consequences
+
+- `npm run db:indexes` must be run to drop the old index. Mongoose creates new
+  indexes but never removes a redefined one.
+- The seeded history generator was also wrong in a matching way: it only ever
+  moved a deadline _before_ it was due, so it could not produce the pattern at
+  all. It now moves a deadline after missing it, at a rate that varies by
+  persona.
+- No real data was lost. The old index blocked a second miss only where a
+  postponement followed one, which the generator never produced and which no
+  real commitment had yet hit.
+
+## 010 — Destructive scripts are guarded by the connection string
+
+**Date:** 2026-09-05
+**Status:** Accepted
+
+### Decision
+
+`seed:history --reset` and anything like it check `MONGODB_URI` via
+`assertSafeToMutate()`. `NODE_ENV` is not consulted. The check fails closed:
+anything not recognisably a local host, or a database named `-dev`/`-test`/
+`-local`, is treated as production.
+
+### Why
+
+The previous guard tested `NODE_ENV === 'production'`, which does not describe
+the risk. A developer running the script on their laptop has
+`NODE_ENV=development` while `.env.local` points at the production cluster —
+the guard passed, and the production database was one command from being
+dropped. The connection string is what actually determines whose data is at
+stake.
+
+Failing closed matters as much as the check itself. A guard that must recognise
+production in order to refuse would wave through every cluster nobody had
+thought to add.
+
+### Consequences
+
+- Purging seeded data on the production cluster now requires pointing
+  `MONGODB_URI` at a scratch database. That is deliberate friction, and it does
+  mean the one-user setup — where the only cluster is production — has to opt
+  in explicitly.
+- The purge itself is scoped to `synthetic: true` rather than dropping
+  collections, so it cannot take real history even when it does run.

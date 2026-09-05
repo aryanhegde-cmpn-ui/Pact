@@ -40,17 +40,15 @@ Deployed on Vercel Hobby, which means no background workers and one daily cron
 
 ## Status
 
-**Scaffold, auth, and the core data model.** No notifications, no PWA, no study
-planner yet.
+**Scaffold, auth, the core data model, an installable PWA, and the notification
+queue with in-app delivery.** Web push is next; the study planner and behaviour
+engine come after.
 
-Working: Commitments with a deadline that can only move through a logged,
-reasoned change; an append-only event log; miss detection derived on read;
-Series whose occurrences are materialised lazily; CRUD API routes; and a plain
-responsive list at `/dashboard`.
-
-The behaviour engine that reads the event log comes next.
-`npm run seed:history` generates 60 days of synthetic history with configurable
-failure patterns to build it against.
+Working: Commitments whose deadline can only move through a logged, reasoned
+change; an append-only event log; miss detection derived on read; Series with
+lazily materialised occurrences; a notification queue wired to the whole
+commitment lifecycle with quiet hours and a staleness cap; an in-app inbox; and
+a home-screen-installable app with a real offline state.
 
 ## Local setup
 
@@ -154,6 +152,8 @@ credentials.
 | `npm run seed:user`       | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
 | `npm run change:password` | Change a password interactively (`-- --email you@example.com`)              |
 | `npm run seed:history`    | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)     |
+| `npm run db:indexes`      | Sync indexes to the models. Run after any index change                      |
+| `npm run icons`           | Regenerate the PWA icon set from the SVG wordmark                           |
 
 No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
@@ -206,6 +206,22 @@ preference:
 - **Only `changeDeadline()` may write `dueAt`**, and it requires a reason.
 - **The event log has no update or delete path anywhere**, including through
   the raw driver.
+
+## Installing on a phone
+
+Open the deployed URL and sign in.
+
+- **Android / desktop Chrome** — an Install button appears on the dashboard once
+  the browser considers the app installable.
+- **iOS Safari** — there is no install event, so the dashboard shows the Share →
+  Add to Home Screen steps instead. **Notifications only work from the installed
+  app on iOS**; Safari does not expose the API to a website at all.
+
+Once installed it opens without browser chrome, pads around the notch and home
+indicator, and shows the last-known data with a staleness banner when offline.
+
+A new deploy raises a "New version available — reload" prompt rather than
+swapping the code underneath you.
 
 ## Contributing
 

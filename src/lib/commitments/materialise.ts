@@ -2,6 +2,8 @@ import 'server-only';
 
 import { occurrenceDatesInRange } from '@/lib/behavior/recurrence';
 import { appendEvent } from '@/lib/db/events';
+import { enqueueForCommitment } from '@/lib/notifications/queue';
+import { getSettings } from '@/lib/notifications/settings';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { SeriesModel } from '@/lib/db/models/series';
 import type { RecurrenceRule } from '@/lib/schemas/series';
@@ -45,6 +47,8 @@ export async function materialiseRange(
   now: Date = new Date(),
 ): Promise<MaterialiseResult> {
   const horizon = addDays(rangeEnd, LOOKAHEAD_DAYS);
+  // Read once for the whole pass rather than per occurrence.
+  const settings = await getSettings();
 
   const active = await SeriesModel.find({
     status: 'active',
@@ -119,6 +123,24 @@ export async function materialiseRange(
           source: 'system',
           payload: { dueAt: dueAt.toISOString(), seriesId },
         });
+
+        // An occurrence is a commitment like any other, so it gets the same
+        // notifications. Enqueued here, as it is materialised, because there
+        // is no later pass that would pick it up.
+        await enqueueForCommitment(
+          {
+            id: String(doc._id),
+            title: series.title,
+            outcome: series.outcome,
+            dueAt,
+            estimateMinutes: rule.estimateMinutes,
+            priority: series.priority,
+            leadMinutes: null,
+          },
+          settings,
+          timeZone,
+          now,
+        );
 
         created += 1;
       } catch (error) {
