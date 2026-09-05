@@ -6,7 +6,7 @@ import '@/styles/globals.css';
 
 export const metadata: Metadata = {
   title: { default: 'Pact', template: '%s · Pact' },
-  description: 'A behavioural intelligence layer over Google Tasks, plus a study planner.',
+  description: 'A personal execution dashboard, plus a study planner.',
   robots: { index: false, follow: false },
 };
 
@@ -19,7 +19,7 @@ export const viewport: Viewport = {
 
 /**
  * Holds only `<html>`/`<body>` and providers. The navigation shell lives in the
- * `(shell)` route group so `/mirror` can render bare -- see src/app/mirror.
+ * `(shell)` route group, so the landing page at `/` renders without it.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

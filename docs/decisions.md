@@ -145,3 +145,97 @@ state" cannot be added by accident.
   decision in review rather than an inline hex in a component.
 - Copy-pasted Tailwind snippets from the internet will not work unmodified.
   This is intended.
+
+## 005 — Google postponed; MongoDB is the sole source of truth
+
+**Date:** 2026-09-04
+**Status:** Accepted — reverses the Google-Tasks-as-execution-store premise
+
+### Decision
+
+Google Tasks and Calendar integration is postponed indefinitely. MongoDB owns
+all data outright. When Google returns it is an optional one-way mirror **out**
+of Pact plus an optional read-only source; it never owns a field and is never
+required for the app to function.
+
+### Why
+
+Sync reconciliation was the single most expensive part of the design, and
+postponing Google removes it entirely rather than deferring it.
+
+The cost was not the API calls. It was that two writable stores meant every
+field needed a conflict rule, and the Google Tasks API is actively hostile to
+holding one: it accepts an RFC 3339 timestamp for `due` and silently discards
+the time, so a naive round-trip destroys the user's deadline. Guarding that
+required a reconciliation layer, an ordering story for concurrent edits, and
+a test matrix for divergence — none of which moves the user closer to doing
+the thing they committed to.
+
+With one writable store, the correct behaviour is the only behaviour. `dueAt`
+is a local field with a real time on it and nothing can overwrite it.
+
+### Consequences
+
+- The due-date trap is gone, along with the section of CLAUDE.md describing it.
+  If Google returns, that hazard returns with it and must be re-documented.
+- Notifications and PWA now come before any Google work.
+- Nothing in the app may be designed to assume a Google response is available,
+  authoritative, or reachable.
+
+## 006 — Email and password auth, single user, no identity provider
+
+**Date:** 2026-09-04
+**Status:** Accepted
+
+### Decision
+
+Auth.js v5 with the Credentials provider and a JWT session strategy. One user.
+No third-party identity provider. Google OAuth may be added later purely to
+authorise API access for an already-signed-in user, never as a login method.
+
+### Why
+
+Signing in must not depend on a third party being reachable. With Google
+demoted to an optional integration (005), using it as the login method would
+have made an optional dependency load-bearing for access to the app itself.
+
+Session lifetime is 90 days, sliding. The intended client is an installed PWA
+on a phone; a session that expires weekly turns the app into something you get
+logged out of rather than something you open.
+
+### Consequences
+
+- Passwords are hashed with `@node-rs/argon2`, chosen over `argon2` because it
+  ships prebuilt binaries — `argon2` compiles natively and fails on Vercel's
+  build image.
+- Login throttling has to be stored in MongoDB, not in memory: serverless
+  invocations share no process, so an in-process counter protects nothing.
+- The `role` field exists on the User model from the start, so growing past one
+  user needs no migration.
+
+## 007 — No password reset flow; operator scripts instead
+
+**Date:** 2026-09-04
+**Status:** Accepted
+
+### Decision
+
+There is no public signup route and no password reset flow. Users are created
+with `npm run seed:user` and passwords changed with `npm run change:password`.
+
+### Why
+
+A reset flow is not worth its cost yet. It needs an email provider, a token
+model with expiry and single-use semantics, rate limiting on the request
+endpoint, and a set of tests for the ways those go wrong — all to serve one
+user who has shell access to the machine that can run a script.
+
+A public signup route on a single-user app is strictly a liability: it is an
+unauthenticated write endpoint that exists to be abused and can never be used
+legitimately.
+
+### Consequences
+
+- Losing the password means running a script, not clicking a link.
+- If the app ever gains a second user who is not the operator, this decision
+  has to be revisited — that is the trigger, not user count on its own.

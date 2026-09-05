@@ -27,7 +27,6 @@ planner.
 | ------------- | -------------------------------------------------- |
 | `/`           | Landing and sign-in entry point                    |
 | `/dashboard`  | The interactive surface                            |
-| `/mirror`     | Read-only display for a wall-mounted smart mirror  |
 | `/study`      | Study planner                                      |
 | `/api/health` | Deploy check — database, environment, commit, time |
 
@@ -41,13 +40,17 @@ Deployed on Vercel Hobby, which means no background workers and one daily cron
 
 ## Status
 
-**Scaffold and tooling only.** No authentication, no Google APIs, no features.
-The four routes render stubs. Auth lands in the next change.
+**Scaffold, tooling, and email/password authentication.** No features yet, and
+no Google APIs by design — see [`docs/decisions.md`](docs/decisions.md) 005.
+
+Working: sign in and sign out, a seeded single user, session-gated `/dashboard`
+and `/study`, database-backed login throttling, `/api/health` and an
+authenticated `/api/health/detail`. The two app routes still render stubs.
 
 ## Local setup
 
-Requires **Node 20.9+** (`.nvmrc` is not used; `node --version` should satisfy
-the `engines` field in `package.json`).
+Requires **Node 22**. `.nvmrc` pins it, so `nvm use` picks the right version,
+and `engines` in package.json makes Vercel build on the same major.
 
 ### 1. Install
 
@@ -63,22 +66,21 @@ serve a request while any are missing, naming each one. `/api/health` reports
 the same list as `"status": "misconfigured"`, so a deploy tells you what is
 wrong instead of just failing.
 
-A blank value counts as unset: `NEXTAUTH_SECRET=""` will not satisfy the
+A blank value counts as unset: `AUTH_SECRET=""` will not satisfy the
 requirement.
 
-| Variable                                    | Where it comes from                                                                                                                                                               |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MONGODB_URI`                               | Atlas → your cluster → Connect → Drivers. The M0 free tier is enough.                                                                                                             |
-| `NEXTAUTH_SECRET`                           | `openssl rand -base64 32`                                                                                                                                                         |
-| `NEXTAUTH_URL`                              | `http://localhost:3000` locally; the deployment URL on Vercel.                                                                                                                    |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Web application). Add `http://localhost:3000/api/auth/callback/google` as an authorised redirect URI. |
-| `ALLOWED_EMAIL`                             | Your Google account. It is the only one permitted to sign in.                                                                                                                     |
-| `MIRROR_DEVICE_TOKEN`                       | `openssl rand -hex 32`. The mirror device presents this instead of a session.                                                                                                     |
-| `CRON_SECRET`                               | `openssl rand -hex 32`. Vercel Cron presents this on scheduled invocations.                                                                                                       |
-| `APP_TIMEZONE`                              | Defaults to `Asia/Kolkata`. Any IANA zone.                                                                                                                                        |
+| Variable                                 | Where it comes from                                                                                                                                 |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`                            | Atlas → your cluster → Connect → Drivers. The M0 free tier is enough.                                                                               |
+| `AUTH_SECRET`                            | `openssl rand -base64 32`. Signs the session JWT; rotating it invalidates every session.                                                            |
+| `AUTH_URL`                               | `http://localhost:3000` locally; the deployment URL on Vercel.                                                                                      |
+| `CRON_SECRET`                            | `openssl rand -hex 32`. Vercel Cron presents this on scheduled invocations.                                                                         |
+| `APP_TIMEZONE`                           | Optional. Defaults to `Asia/Kolkata`. Any IANA zone.                                                                                                |
+| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` | Optional, read only by `npm run seed:user`. Do **not** set these on a deployment — a live environment has no business holding a plaintext password. |
+| `SEED_USER_NAME`                         | Optional display name for the seeded user. Defaults to the part of the email before the `@`.                                                        |
 
-The OAuth and cron values are not used yet — auth arrives in the next change —
-but the schema requires them so a deploy cannot get halfway configured.
+`CRON_SECRET` is not used yet, but the schema requires it so a deploy cannot get
+halfway configured.
 
 ### 3. Atlas network access
 
@@ -86,7 +88,32 @@ Atlas blocks connections by default. In **Network Access**, allow your IP for
 local development. For the Vercel deployment you need `0.0.0.0/0`, because
 Vercel's serverless functions do not have stable outbound IPs on Hobby.
 
-### 4. Run
+### 4. Create your user
+
+There is no signup page — see [`docs/decisions.md`](docs/decisions.md) 007. Set
+`SEED_USER_EMAIL` and `SEED_USER_PASSWORD` in `.env.local`, then:
+
+```bash
+npm run seed:user
+```
+
+It refuses to run once a user exists. To reset that account's password:
+
+```bash
+npm run seed:user -- --force
+```
+
+Or change a password interactively, without it reaching your shell history:
+
+```bash
+npm run change:password -- --email you@example.com
+```
+
+Ten failed sign-ins within an hour lock the account for fifteen minutes.
+Wrong password, unknown email and locked-out all return the same message, so the
+form cannot be used to discover which addresses have accounts.
+
+### 5. Run
 
 ```bash
 npm run dev
@@ -109,17 +136,19 @@ credentials.
 
 ## Scripts
 
-| Command               | What it does                                                     |
-| --------------------- | ---------------------------------------------------------------- |
-| `npm run dev`         | Development server on :3000, opens your browser once it is ready |
-| `npm run dev:no-open` | Same, without launching a browser                                |
-| `npm run build`       | Production build                                                 |
-| `npm start`           | Serve the production build                                       |
-| `npm test`            | Run the Vitest suite once                                        |
-| `npm run test:watch`  | Vitest in watch mode                                             |
-| `npm run typecheck`   | `tsc --noEmit`                                                   |
-| `npm run lint`        | ESLint                                                           |
-| `npm run format`      | Prettier, writing in place                                       |
+| Command                   | What it does                                                                |
+| ------------------------- | --------------------------------------------------------------------------- |
+| `npm run dev`             | Development server on :3000, opens your browser once it is ready            |
+| `npm run dev:no-open`     | Same, without launching a browser                                           |
+| `npm run build`           | Production build                                                            |
+| `npm start`               | Serve the production build                                                  |
+| `npm test`                | Run the Vitest suite once                                                   |
+| `npm run test:watch`      | Vitest in watch mode                                                        |
+| `npm run typecheck`       | `tsc --noEmit`                                                              |
+| `npm run lint`            | ESLint                                                                      |
+| `npm run format`          | Prettier, writing in place                                                  |
+| `npm run seed:user`       | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
+| `npm run change:password` | Change a password interactively (`-- --email you@example.com`)              |
 
 No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
@@ -136,7 +165,7 @@ No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
    it looks configured. A blank value is treated as unset, and the build error
    says `set, but the value is empty` to tell the two apart.
 
-3. Set `NEXTAUTH_URL` to the deployment URL.
+3. Set `AUTH_URL` to the deployment URL.
 4. Allow `0.0.0.0/0` in Atlas Network Access.
 5. Confirm the deploy with `/api/health` — it needs no authentication and
    reports the commit SHA, so you can verify _which_ build you are looking at.
@@ -145,18 +174,23 @@ No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
 ```
 src/app/            routes
-src/app/(shell)/    routes rendered inside the nav shell
+src/app/page.tsx    landing + sign-in, outside the shell on purpose
+src/app/(shell)/    routes rendered inside the nav shell (signed-in only)
 src/app/api/        route handlers
+src/proxy.ts        route protection (Next 16's renamed middleware)
+src/lib/auth/       Auth.js config, password hashing, login throttling
 src/lib/db/         mongoose connection + models
 src/lib/schemas/    zod schemas — the source of truth for types
+src/lib/env.ts      environment schema + parsed values, server-only
 src/lib/behavior/   pure analysis functions, no I/O
 src/components/
 src/styles/         design tokens + global stylesheet
-scripts/            dev tooling
+scripts/            dev and operator scripts
 docs/
 ```
 
-`/mirror` sits outside `(shell)` so it renders bare, with no navigation.
+The landing page sits outside `(shell)` so a signed-out visitor renders no
+navigation. `/mirror` is deferred and its stub has been removed.
 
 ## Contributing
 
