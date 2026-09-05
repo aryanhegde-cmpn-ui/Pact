@@ -6,19 +6,23 @@ Read this before doing anything else in this repository.
 
 A personal execution dashboard for exactly one user.
 
-**Google Tasks is the execution store.** This app is the behavioural
-intelligence layer over it, plus a study planner. It does not try to replace
-Google Tasks and it does not try to be a better task manager.
+**MongoDB is the execution store.** This app owns the data outright and is the
+behavioural intelligence layer over it, plus a study planner.
 
-Three surfaces:
+Two surfaces:
 
-| Route        | Surface                                            |
-| ------------ | -------------------------------------------------- |
-| `/dashboard` | The interactive surface. Read and act.             |
-| `/mirror`    | Read-only display for a wall-mounted smart mirror. |
-| `/study`     | Study planner.                                     |
+| Route        | Surface                                |
+| ------------ | -------------------------------------- |
+| `/dashboard` | The interactive surface. Read and act. |
+| `/study`     | Study planner.                         |
 
-`/` is the landing page and sign-in entry point.
+`/` is the landing page and sign-in entry point. It renders outside the nav
+shell so a signed-out visitor never sees navigation.
+
+`/mirror`, the read-only smart-mirror display, is **deferred**. The route stub
+has been removed rather than left as a public page. It comes back only with a
+device-token auth story of its own; until then neither `/mirror` nor
+`/api/mirror/*` exists.
 
 ## The feature test
 
@@ -64,41 +68,37 @@ honest trend data over the event log, not by a score.
 
 ## Data ownership
 
-The boundary is not negotiable, and getting it wrong loses user data.
+**MongoDB is the single source of truth for all data. There is no external
+store.** Every field is owned here, written here, and read here. Nothing this
+app needs lives anywhere else.
 
-**Google Tasks owns:**
+### Google is postponed
 
-- Task existence
-- Title
-- Notes
-- Completion status
-- List membership
-- Due **DATE**
+Google Tasks and Calendar integration is **postponed**, not in progress. There
+is no sync code, and none should be written.
 
-**This app owns:**
+When Google is eventually added it is strictly:
 
-- Everything else
-- The full event history
+- an **optional one-way mirror OUT of Pact**, and
+- an **optional read-only data source**.
 
-### The due-date trap
+It **never owns a field**, and it is **never required for the app to
+function**. Pact must work completely with Google absent, disconnected, or
+broken. Any design that makes a Google response authoritative over a local
+value is wrong, and any design that blocks a user action on a Google call
+being reachable is wrong.
 
-The Google Tasks API stores due dates **only** — it accepts an RFC 3339
-timestamp and silently discards the time portion, returning midnight UTC.
+There is no due-date reconciliation problem any more, because there is no
+reconciliation. `dueAt` is a local field with a real time on it, and nothing
+external gets to overwrite it.
 
-Therefore:
+### Authentication
 
-- **Local `dueAt` is the real deadline.** It carries the time.
-- **A Google round-trip must never overwrite `dueAt`.** Reading a task back
-  from Google and writing its `due` field into `dueAt` destroys the time the
-  user set, every sync, permanently.
+Auth is **email and password, single user, no third-party identity provider.**
 
-When reconciling, treat Google's `due` as a date-level signal only. If the date
-differs from local `dueAt`'s date in `APP_TIMEZONE`, the user changed it in
-Google — carry the date across and keep the local time-of-day. If the date
-matches, ignore Google's value entirely.
-
-Any sync code that assigns Google's `due` straight into `dueAt` is a bug, even
-if the tests pass.
+Google OAuth may be added later **purely to authorise API access** for a user
+who is already signed in. It is not a login method, and it never becomes one.
+Signing in must never depend on Google being reachable.
 
 ## Event log rule
 
@@ -148,6 +148,13 @@ will exhaust the pool and take the app down.
 - **Zod schemas are the source of truth for types.** Define the schema in
   [`src/lib/schemas/`](src/lib/schemas/), then derive the TypeScript type with
   `z.infer`. Never hand-write an interface that duplicates a schema.
+
+  The one exception is the environment schema, which lives in
+  [`src/lib/env.ts`](src/lib/env.ts) alongside the parsed values rather than in
+  `src/lib/schemas/`. That module is `server-only`, and putting it in the
+  shared schemas directory invites a client component to import it and blow up
+  the build. Env is **one module**, deliberately.
+
 - **Store UTC, render in `APP_TIMEZONE`.** Every timestamp in the database is
   UTC. Timezone is a presentation concern; helpers live in
   [`src/lib/time.ts`](src/lib/time.ts).
@@ -166,24 +173,45 @@ will exhaust the pool and take the app down.
   produces for a variable declared without a value. `SKIP_ENV_VALIDATION=1`
   bypasses the check for jobs that only compile and test.
 
+- **The parsed environment is `server-only`.** `src/lib/env.ts` imports the
+  `server-only` package, so importing it from a client component is a build
+  error rather than a leaked secret. There is a test that fails if that import
+  is ever removed. Never re-export env values through a client module.
+- **Passwords are hashed with `@node-rs/argon2`.** Never the `argon2` package:
+  it compiles natively and fails on Vercel's build image. `@node-rs/argon2`
+  ships prebuilt binaries. `bcryptjs` is the pure-JS fallback if those ever
+  break.
+- **Auth failures are indistinguishable.** Wrong password, unknown email and
+  locked-out account all return the same generic error. Never add a message,
+  status code, or timing shortcut that lets a caller tell which email addresses
+  exist.
+- **Route protection lives in [`src/proxy.ts`](src/proxy.ts).** Next.js 16
+  renamed `middleware.ts` to `proxy.ts`; the old filename silently does
+  nothing. Proxy runs on the Node.js runtime and must stay free of database
+  access — it verifies the session JWT and nothing else.
 - TypeScript is `strict`, plus `noUncheckedIndexedAccess`. Do not weaken it.
 
 ## Layout
 
 ```
 src/app/            routes
-src/app/(shell)/    routes rendered inside the nav shell
+src/app/page.tsx    landing + sign-in, deliberately OUTSIDE (shell)
+src/app/(shell)/    routes rendered inside the nav shell (signed-in only)
 src/app/api/        route handlers
+src/proxy.ts        route protection (Next 16's renamed middleware)
+src/lib/auth/       Auth.js config, password hashing, login throttling
 src/lib/db/         mongoose connection + models
 src/lib/schemas/    zod schemas — source of truth for types
+src/lib/env.ts      environment schema + parsed values, server-only
 src/lib/behavior/   pure analysis functions, no I/O
 src/components/
 src/styles/         design tokens + global stylesheet
+scripts/            dev and operator scripts
 docs/
 ```
 
-`/mirror` deliberately sits outside `(shell)` so it renders with its own bare
-layout and no navigation.
+The landing page sits outside `(shell)` on purpose: a signed-out visitor must
+not render navigation to routes they cannot reach.
 
 ## Design
 
@@ -201,8 +229,17 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 
 ## Current state
 
-Scaffold and tooling only. No authentication, no Google APIs, no features. The
-route stubs are laid out correctly and render nothing meaningful yet.
+Scaffold, tooling, and **email/password authentication**. No features yet, and
+no Google APIs by design.
+
+Working: sign in and sign out, a seeded single user, session-gated `/dashboard`
+and `/study`, database-backed login throttling, and `/api/health` plus an
+authenticated `/api/health/detail`.
+
+There is **no public signup route and no password reset flow.** Users are
+created with `npm run seed:user` and passwords changed with
+`npm run change:password`. Both reasons are recorded in
+[`docs/decisions.md`](docs/decisions.md).
 
 Decisions already made and their reasoning are in
 [`docs/decisions.md`](docs/decisions.md).

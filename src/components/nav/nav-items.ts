@@ -16,9 +16,4 @@ export const navItems: readonly NavItem[] = [
     label: 'Study',
     icon: 'M12 6.5 4 4v13l8 2.5L20 17V4l-8 2.5Zm0 0V19',
   },
-  {
-    href: '/mirror',
-    label: 'Mirror',
-    icon: 'M5 3h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm4 18h6',
-  },
 ] as const;

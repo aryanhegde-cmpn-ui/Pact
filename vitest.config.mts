@@ -22,13 +22,9 @@ export default defineConfig({
      */
     env: {
       MONGODB_URI: 'mongodb://127.0.0.1:27017/pact-test',
-      NEXTAUTH_SECRET: 'test-nextauth-secret-value',
-      NEXTAUTH_URL: 'http://localhost:3000',
-      GOOGLE_CLIENT_ID: 'test-google-client-id',
-      GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
-      ALLOWED_EMAIL: 'test@example.com',
-      MIRROR_DEVICE_TOKEN: 'test-mirror-device-token',
-      CRON_SECRET: 'test-cron-secret',
+      AUTH_SECRET: 'test-auth-secret-value-not-real',
+      AUTH_URL: 'http://localhost:3000',
+      CRON_SECRET: 'test-cron-secret-value-not-real',
       APP_TIMEZONE: 'Asia/Kolkata',
     },
   },
