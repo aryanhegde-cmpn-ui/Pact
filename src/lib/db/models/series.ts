@@ -1,0 +1,60 @@
+import 'server-only';
+
+import mongoose, { type InferSchemaType, type Model } from 'mongoose';
+
+import { prioritySchema } from '@/lib/schemas/commitment';
+import { frequencySchema, seriesStatusSchema } from '@/lib/schemas/series';
+
+/**
+ * A Series holds the recurrence RULE. It does not hold occurrences.
+ *
+ * Individual occurrences are real Commitment documents, materialised lazily
+ * when a date range is read. That is what lets an occurrence be completed,
+ * abandoned, postponed and reasoned about exactly like any other commitment --
+ * a virtual occurrence computed on the fly could not carry its own history.
+ *
+ * Ending a series never touches the occurrences it already produced. They are
+ * historical fact.
+ */
+const seriesSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    outcome: { type: String, required: true, trim: true },
+
+    rule: {
+      frequency: { type: String, required: true, enum: frequencySchema.options },
+      interval: { type: Number, required: true, min: 1, default: 1 },
+      byWeekday: { type: [Number], default: [] },
+      /** Wall clock in APP_TIMEZONE, `HH:MM`. Not an instant. */
+      timeOfDay: { type: String, required: true },
+      estimateMinutes: { type: Number, required: true, min: 1 },
+    },
+
+    priority: { type: String, required: true, enum: prioritySchema.options },
+
+    /** Local calendar dates in APP_TIMEZONE, `YYYY-MM-DD`. */
+    startDate: { type: String, required: true },
+    /** Null means open-ended. */
+    endDate: { type: String, default: null },
+
+    status: { type: String, required: true, enum: seriesStatusSchema.options, default: 'active' },
+    createdAt: { type: Date, required: true, default: () => new Date() },
+
+    /**
+     * Set when this series was created by a "this and future" edit, pointing at
+     * the series it continues. Keeps the chain readable without rewriting the
+     * occurrences the previous rule produced.
+     */
+    supersedes: { type: String, default: null },
+  },
+  { collection: 'series', versionKey: false },
+);
+
+// Materialisation reads active series overlapping a window.
+seriesSchema.index({ status: 1, startDate: 1 });
+
+export type SeriesDocument = InferSchemaType<typeof seriesSchema>;
+
+export const SeriesModel: Model<SeriesDocument> =
+  (mongoose.models.Series as Model<SeriesDocument> | undefined) ??
+  mongoose.model<SeriesDocument>('Series', seriesSchema);

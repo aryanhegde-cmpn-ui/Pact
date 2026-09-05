@@ -40,12 +40,17 @@ Deployed on Vercel Hobby, which means no background workers and one daily cron
 
 ## Status
 
-**Scaffold, tooling, and email/password authentication.** No features yet, and
-no Google APIs by design — see [`docs/decisions.md`](docs/decisions.md) 005.
+**Scaffold, auth, and the core data model.** No notifications, no PWA, no study
+planner yet.
 
-Working: sign in and sign out, a seeded single user, session-gated `/dashboard`
-and `/study`, database-backed login throttling, `/api/health` and an
-authenticated `/api/health/detail`. The two app routes still render stubs.
+Working: Commitments with a deadline that can only move through a logged,
+reasoned change; an append-only event log; miss detection derived on read;
+Series whose occurrences are materialised lazily; CRUD API routes; and a plain
+responsive list at `/dashboard`.
+
+The behaviour engine that reads the event log comes next.
+`npm run seed:history` generates 60 days of synthetic history with configurable
+failure patterns to build it against.
 
 ## Local setup
 
@@ -73,7 +78,6 @@ requirement.
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MONGODB_URI`                            | Atlas → your cluster → Connect → Drivers. The M0 free tier is enough.                                                                               |
 | `AUTH_SECRET`                            | `openssl rand -base64 32`. Signs the session JWT; rotating it invalidates every session.                                                            |
-| `AUTH_URL`                               | `http://localhost:3000` locally; the deployment URL on Vercel.                                                                                      |
 | `CRON_SECRET`                            | `openssl rand -hex 32`. Vercel Cron presents this on scheduled invocations.                                                                         |
 | `APP_TIMEZONE`                           | Optional. Defaults to `Asia/Kolkata`. Any IANA zone.                                                                                                |
 | `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` | Optional, read only by `npm run seed:user`. Do **not** set these on a deployment — a live environment has no business holding a plaintext password. |
@@ -149,6 +153,7 @@ credentials.
 | `npm run format`          | Prettier, writing in place                                                  |
 | `npm run seed:user`       | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
 | `npm run change:password` | Change a password interactively (`-- --email you@example.com`)              |
+| `npm run seed:history`    | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)     |
 
 No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
@@ -165,7 +170,9 @@ No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
    it looks configured. A blank value is treated as unset, and the build error
    says `set, but the value is empty` to tell the two apart.
 
-3. Set `AUTH_URL` to the deployment URL.
+3. **Do not set `AUTH_URL`.** Auth.js derives the origin from the request,
+   which is what keeps preview deployments working. Setting it pins every
+   redirect to one host — see [`docs/decisions.md`](docs/decisions.md) 008.
 4. Allow `0.0.0.0/0` in Atlas Network Access.
 5. Confirm the deploy with `/api/health` — it needs no authentication and
    reports the commit SHA, so you can verify _which_ build you are looking at.
@@ -191,6 +198,14 @@ docs/
 
 The landing page sits outside `(shell)` so a signed-out visitor renders no
 navigation. `/mirror` is deferred and its stub has been removed.
+
+Two rules in the data model are enforced by tests that scan the source rather
+than by convention, because both are the product rather than a style
+preference:
+
+- **Only `changeDeadline()` may write `dueAt`**, and it requires a reason.
+- **The event log has no update or delete path anywhere**, including through
+  the raw driver.
 
 ## Contributing
 

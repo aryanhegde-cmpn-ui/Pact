@@ -1,5 +1,7 @@
 import type { NextAuthConfig } from 'next-auth';
 
+import { safeReturnTo } from '@/lib/auth/return-to';
+
 /**
  * The half of the Auth.js config that carries no database access.
  *
@@ -23,24 +25,6 @@ export function isProtectedPath(pathname: string): boolean {
 export type AccessDecision = { allow: true } | { allow: false; redirectTo: string };
 
 /**
- * The origin the client actually used.
- *
- * `request.nextUrl.origin` cannot be trusted for this: Auth.js derives it from
- * AUTH_URL, so on a Vercel preview deployment it names the production domain
- * and every redirect leaves the deployment being tested. Vercel sets the
- * forwarded headers itself, so they describe the real request.
- */
-export function requestOrigin(headers: Headers, fallback: string): string {
-  const host = headers.get('x-forwarded-host') ?? headers.get('host');
-  if (!host) return fallback;
-
-  const proto =
-    headers.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-
-  return `${proto}://${host}`;
-}
-
-/**
  * The whole route-protection rule, as a pure function.
  *
  * Extracted from the proxy so it can be tested without standing up Next's
@@ -57,26 +41,28 @@ export function resolveAccess(
   }
 
   // Carry the original destination so sign-in can return the user to it.
-  // A path with its query only -- never an absolute URL, which would turn
-  // returnTo into an open redirect.
-  const params = new URLSearchParams({ returnTo: `${pathname}${search}` });
+  // Validated on the way out as well as on the way in: what we emit here has
+  // to satisfy the same rule the landing page will apply when it reads it.
+  const params = new URLSearchParams({ returnTo: safeReturnTo(`${pathname}${search}`) });
 
   return { allow: false, redirectTo: `/?${params.toString()}` };
 }
 
 export const authConfig = {
   /**
-   * Let Auth.js resolve its own callback URLs from the incoming request rather
-   * than assuming AUTH_URL, which is what makes preview deployments work. It
-   * auto-detects this on Vercel; setting it explicitly keeps behaviour the same
-   * anywhere else.
+   * The single mechanism for working out the app's own origin.
    *
-   * Note this does NOT affect `request.nextUrl.origin` inside the proxy, which
-   * still reflects AUTH_URL -- see the redirect comment in src/proxy.ts.
+   * Auth.js derives it from the incoming request's forwarded headers. AUTH_URL
+   * must stay UNSET, because setting it overrides this and pins every redirect
+   * and callback to one host -- which sends preview deployments to production.
    *
-   * Safe because the app runs behind Vercel, which sets the Host header itself.
-   * On infrastructure that forwards a client-supplied Host, trusting it is
-   * header injection.
+   * The alternative (build the origin by hand from x-forwarded-host, checked
+   * against an allowlist) was removed rather than kept alongside this: two
+   * mechanisms disagreeing about the app's own identity is worse than either
+   * one. See docs/decisions.md, 008.
+   *
+   * Safe because the app runs behind Vercel, which sets the forwarded headers
+   * itself and does not pass through a client-supplied Host.
    */
   trustHost: true,
 

@@ -4,6 +4,8 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
+import { safeReturnTo } from '@/lib/auth/return-to';
+
 /**
  * Sign-in form.
  *
@@ -56,11 +58,9 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
         return;
       }
 
-      // Only ever a path, never an absolute URL -- an attacker-supplied
-      // returnTo must not be able to bounce the user off-site.
-      const destination =
-        returnTo?.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/dashboard';
-      router.push(destination);
+      // Re-validated here rather than trusted from props: this value came off
+      // the query string, and the same rule has to hold on both sides.
+      router.push(safeReturnTo(returnTo));
       router.refresh();
     } catch {
       setFormError('Could not reach the server. Try again.');

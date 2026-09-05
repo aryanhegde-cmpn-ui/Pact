@@ -23,8 +23,16 @@ const envSchema = z.object({
   /** Signs the session JWT. Rotating it invalidates every session. */
   AUTH_SECRET: z.string().min(16, 'must be at least 16 characters'),
 
-  /** Canonical origin. Auth.js builds callback URLs from it. */
-  AUTH_URL: z.url('must be an absolute URL'),
+  /**
+   * Deliberately OPTIONAL, and on Vercel it must be left unset.
+   *
+   * Auth.js works the origin out from the request's forwarded headers
+   * (`trustHost`). Setting AUTH_URL overrides that and pins every redirect and
+   * callback to one host, which sends preview deployments to production. It
+   * remains here only as an escape hatch for running behind a proxy that does
+   * not set forwarded headers. See docs/decisions.md, 008.
+   */
+  AUTH_URL: z.url('must be an absolute URL').optional(),
 
   /** Shared secret Vercel Cron presents on scheduled invocations. */
   CRON_SECRET: z.string().min(16, 'must be at least 16 characters'),

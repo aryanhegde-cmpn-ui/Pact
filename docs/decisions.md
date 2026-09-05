@@ -239,3 +239,62 @@ legitimately.
 - Losing the password means running a script, not clicking a link.
 - If the app ever gains a second user who is not the operator, this decision
   has to be revisited — that is the trigger, not user count on its own.
+
+## 008 — One mechanism for the app's own origin: trustHost, not AUTH_URL
+
+**Date:** 2026-09-05
+**Status:** Accepted — supersedes the hand-built origin added in feat/auth
+
+### Decision
+
+Auth.js derives the origin from the incoming request's forwarded headers
+(`trustHost: true`). **`AUTH_URL` stays unset**, including on Vercel.
+
+The alternative — building the redirect origin by hand from `x-forwarded-host`,
+validated against an allowlist, falling back to `AUTH_URL` — is removed, not
+kept alongside. `requestOrigin()` is gone.
+
+### Why
+
+feat/auth ended up with both mechanisms at once, and they disagreed.
+`AUTH_URL` was set, so Auth.js rewrote `request.nextUrl` to name that host,
+while the proxy built its redirects from the forwarded headers. Two different
+answers to "what origin is this app served from" in the same request.
+
+That disagreement is worse than either mechanism alone. It is invisible in
+production, where the two agree because there is only one host, and it appears
+only on preview deployments — exactly where it is hardest to notice and least
+expected.
+
+Picking Auth.js's mechanism rather than the hand-rolled one:
+
+- It is the one the library actually uses for its own callback URLs. Keeping
+  the custom code would have left Auth.js still consulting `AUTH_URL`
+  internally, so the app would only have been half-fixed.
+- An allowlist of valid hosts has to be maintained, and Vercel generates a new
+  preview hostname per deployment. The allowlist would either need a wildcard
+  (no longer much of an allowlist) or would break previews again.
+- It is less code. The custom origin builder was thirty lines and one more
+  thing to get wrong.
+
+The header trust this requires is safe **only** because the app runs behind
+Vercel, which sets `x-forwarded-host` itself and does not pass through a
+client-supplied `Host`. On infrastructure without that guarantee, trusting the
+header is header injection, and `AUTH_URL` becomes the right answer instead.
+
+### Consequences
+
+- **`AUTH_URL` must be removed from the Vercel project.** Leaving it set keeps
+  the old behaviour, silently.
+- It stays in the env schema as optional, documented as an escape hatch for
+  running behind a proxy that does not send forwarded headers.
+- Preview deployments now redirect within themselves.
+
+### Related
+
+`returnTo` validation moved to `safeReturnTo()` in
+[`src/lib/auth/return-to.ts`](src/lib/auth/return-to.ts) at the same time. It
+had been duplicated across the proxy, the landing page and the sign-in form,
+and every copy missed `/\evil.com` — a protocol-relative redirect written with
+a backslash, which browsers fold to `/` but a `startsWith('//')` check does
+not. One implementation, allow-list shaped, used by all three.
