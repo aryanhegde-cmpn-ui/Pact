@@ -24,6 +24,21 @@ has been removed rather than left as a public page. It comes back only with a
 device-token auth story of its own; until then neither `/mirror` nor
 `/api/mirror/*` exists.
 
+## Terminology
+
+**The core entity is a Commitment, not a task.** This is deliberate, and it
+holds in collection names, type names, route names and UI copy.
+
+A task is an item on a list. A commitment is something you said you would do,
+with a deadline you are accountable to and an `outcome` that says what is true
+when it is done. "Work on the report" cannot be verified; "the report is sent to
+Priya" can. The vocabulary is load-bearing: calling these tasks is how the app
+turns back into a to-do list.
+
+A **Series** holds a recurrence rule. Its **occurrences** are real Commitment
+documents, so an occurrence can be completed, postponed and reasoned about like
+any other commitment.
+
 ## The feature test
 
 > **Does this increase the probability that the user actually does the thing?**
@@ -122,6 +137,68 @@ functions over events: no I/O, no database access, no `fetch`, and no reading
 the clock — pass the current time in as an argument so the analysis stays
 deterministic and testable.
 
+## The deadline lockdown
+
+**`changeDeadline()` in [`src/lib/commitments/deadline.ts`](src/lib/commitments/deadline.ts)
+is the only function permitted to write `dueAt`.** There is a test that scans
+the whole of `src/` and fails if any other module writes it.
+
+**`originalDueAt` is written once, at creation, and never again.** It is
+`immutable` on the model and additionally guarded against raw `$set` updates.
+
+The generic update path rejects any body containing `dueAt` — the schema is
+`.strict()` and the route names the field explicitly in its error, so a caller
+learns _why_, not just that a key was unrecognised.
+
+This is enforced structurally rather than by convention because it is the
+product, not a style preference. A deadline that can move silently is not a
+deadline. The gap between what the user committed to and what they did is the
+only thing this app has to show them, and an unlogged reschedule erases it.
+Requiring a reason makes moving a deadline a decision someone has to
+articulate, rather than a frictionless drag that happens ten times without ever
+feeling like anything.
+
+## Miss detection without a scheduler
+
+A commitment is missed when `now > dueAt` and its status is neither `done` nor
+`abandoned`. That is **derived on read** — there is no `isMissed` column and
+there must never be one, because it changes with the clock rather than with a
+write.
+
+The first read that observes a miss lazily appends `DEADLINE_MISSED`. Vercel
+Hobby allows one daily cron, so there is no per-minute job and adding one for
+this would be disproportionate.
+
+Concurrent serverless invocations all notice the same miss at once, so
+idempotency comes from a **unique partial index** on `(entityId, type)` for that
+event type — not from checking first and writing second, which races between the
+two steps. `appendEvent` treats the resulting duplicate-key error as success.
+
+The event is timestamped at the **deadline**, not at the moment a read noticed
+it. Otherwise the log would record misses as happening whenever the user next
+opened the app.
+
+When the notification tick arrives it will emit these proactively. Both paths go
+through `appendEvent` and the same index, so whichever gets there first wins and
+the derived read keeps working either way.
+
+## Series and occurrences
+
+- Occurrences are **materialised lazily**: reading a date range creates any
+  missing occurrences in it, plus a 14-day lookahead. No background job.
+- A unique compound index on `(seriesId, occurrenceDate)` makes concurrent
+  materialisation safe; a duplicate-key error is success, not a failure.
+- Rules are evaluated on the **local calendar in `APP_TIMEZONE`** and stored as
+  UTC instants. `occurrenceDate` is a `YYYY-MM-DD` string, not a `Date`, because
+  two different instants can be the same local day and a `Date`-keyed unique
+  index would let both through.
+- **Editing a series never rewrites past occurrences.** They are historical
+  fact. The scopes are `this-occurrence` (edit the one document) and
+  `this-and-future` (end the current series, start a new one from today). There
+  is deliberately no "all occurrences".
+- **Ending a series is not a delete.** Past occurrences stay. Only future,
+  untouched, still-pending ones are removed.
+
 ## Deployment constraints
 
 Deployed on **Vercel Hobby**. This is a hard constraint on architecture:
@@ -189,24 +266,37 @@ will exhaust the pool and take the app down.
   renamed `middleware.ts` to `proxy.ts`; the old filename silently does
   nothing. Proxy runs on the Node.js runtime and must stay free of database
   access — it verifies the session JWT and nothing else.
+- **`AUTH_URL` stays unset.** Auth.js works the origin out from the request's
+  forwarded headers (`trustHost`). Setting `AUTH_URL` overrides that and pins
+  every redirect to one host, which sends preview deployments to production.
+  One mechanism only — see docs/decisions.md, 008.
+- **Redirect targets go through `safeReturnTo()`** in
+  [`src/lib/auth/return-to.ts`](src/lib/auth/return-to.ts), on the server and
+  the client alike. It is allow-list shaped: a path, which still parses as
+  same-origin. Never hand-roll this check — every hand-rolled copy missed
+  `/\evil.com`, a protocol-relative redirect written with a backslash that
+  browsers fold to `/`.
 - TypeScript is `strict`, plus `noUncheckedIndexedAccess`. Do not weaken it.
 
 ## Layout
 
 ```
-src/app/            routes
-src/app/page.tsx    landing + sign-in, deliberately OUTSIDE (shell)
-src/app/(shell)/    routes rendered inside the nav shell (signed-in only)
-src/app/api/        route handlers
-src/proxy.ts        route protection (Next 16's renamed middleware)
-src/lib/auth/       Auth.js config, password hashing, login throttling
-src/lib/db/         mongoose connection + models
-src/lib/schemas/    zod schemas — source of truth for types
-src/lib/env.ts      environment schema + parsed values, server-only
-src/lib/behavior/   pure analysis functions, no I/O
+src/app/               routes
+src/app/page.tsx       landing + sign-in, deliberately OUTSIDE (shell)
+src/app/(shell)/       routes rendered inside the nav shell (signed-in only)
+src/app/api/           route handlers
+src/proxy.ts           route protection (Next 16's renamed middleware)
+src/lib/auth/          Auth.js config, password hashing, throttling, returnTo
+src/lib/commitments/   commitment + series services, materialisation, deadline
+src/lib/db/            mongoose connection + models
+src/lib/db/events.ts   appendEvent — the ONLY write path into the event log
+src/lib/schemas/       zod schemas — source of truth for types
+src/lib/env.ts         environment schema + parsed values, server-only
+src/lib/behavior/      pure analysis functions, no I/O, clock passed in
+src/lib/api/           route guard + error translation
 src/components/
-src/styles/         design tokens + global stylesheet
-scripts/            dev and operator scripts
+src/styles/            design tokens + global stylesheet
+scripts/               dev and operator scripts
 docs/
 ```
 
@@ -229,17 +319,16 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 
 ## Current state
 
-Scaffold, tooling, and **email/password authentication**. No features yet, and
-no Google APIs by design.
+Scaffold, tooling, email/password authentication, and **the core data model**.
 
-Working: sign in and sign out, a seeded single user, session-gated `/dashboard`
-and `/study`, database-backed login throttling, and `/api/health` plus an
-authenticated `/api/health/detail`.
+Working: Commitments with a locked-down deadline, an append-only event log,
+derived miss detection, Series with lazily materialised occurrences, CRUD API
+routes, and a plain list at `/dashboard`.
 
-There is **no public signup route and no password reset flow.** Users are
-created with `npm run seed:user` and passwords changed with
-`npm run change:password`. Both reasons are recorded in
-[`docs/decisions.md`](docs/decisions.md).
+Not built yet, deliberately: notifications, PWA, the study planner, and the
+behaviour engine that reads the event log. `npm run seed:history` generates
+60 days of synthetic history with configurable failure patterns to develop that
+engine against.
 
 Decisions already made and their reasoning are in
 [`docs/decisions.md`](docs/decisions.md).

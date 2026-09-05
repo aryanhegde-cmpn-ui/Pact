@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
 
-import { authConfig, requestOrigin, resolveAccess } from '@/lib/auth/config';
+import { authConfig, resolveAccess } from '@/lib/auth/config';
 
 /**
  * Route protection.
@@ -25,11 +25,9 @@ export default auth((request) => {
     return NextResponse.next();
   }
 
-  // Built from the forwarded headers rather than `request.nextUrl.origin`,
-  // which Auth.js derives from AUTH_URL -- see requestOrigin.
-  const origin = requestOrigin(request.headers, request.nextUrl.origin);
-
-  return NextResponse.redirect(new URL(decision.redirectTo, origin));
+  // `nextUrl.origin` is the real request origin now that AUTH_URL is unset and
+  // Auth.js derives the origin from the forwarded headers -- see authConfig.
+  return NextResponse.redirect(new URL(decision.redirectTo, request.nextUrl.origin));
 });
 
 export const config = {

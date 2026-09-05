@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:user": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-user.ts",
-    "change:password": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-password.ts"
+    "change:password": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-password.ts",
+    "seed:history": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-history.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",

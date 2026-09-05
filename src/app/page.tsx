@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { SignInForm } from '@/components/auth/sign-in-form';
 import { auth } from '@/lib/auth';
+import { DEFAULT_SIGNED_IN_PATH, safeReturnTo } from '@/lib/auth/return-to';
 
 /**
  * Landing page and sign-in entry point.
@@ -19,14 +20,12 @@ export default async function LandingPage({
   const session = await auth();
   const params = await searchParams;
 
-  const rawReturnTo = params.returnTo;
-  const returnTo = typeof rawReturnTo === 'string' ? rawReturnTo : undefined;
-  // Only ever a path. An absolute URL here would make this an open redirect.
-  const safeReturnTo =
-    returnTo?.startsWith('/') && !returnTo.startsWith('//') ? returnTo : undefined;
+  // An absent or hostile value both collapse to the default, silently.
+  const destination = safeReturnTo(params.returnTo);
+  const cameFromProtectedRoute = destination !== DEFAULT_SIGNED_IN_PATH;
 
   if (session?.user) {
-    redirect(safeReturnTo ?? '/dashboard');
+    redirect(destination);
   }
 
   return (
@@ -37,13 +36,13 @@ export default async function LandingPage({
           <p className="text-text/60 mt-2xs text-sm">Execution, not organisation</p>
         </header>
 
-        {safeReturnTo ? (
+        {cameFromProtectedRoute ? (
           <p className="border-edge bg-surface mb-md rounded border px-md py-sm text-sm text-text/70">
             Sign in to continue.
           </p>
         ) : null}
 
-        <SignInForm returnTo={safeReturnTo} />
+        <SignInForm returnTo={destination} />
       </div>
     </main>
   );

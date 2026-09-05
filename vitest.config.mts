@@ -23,7 +23,6 @@ export default defineConfig({
     env: {
       MONGODB_URI: 'mongodb://127.0.0.1:27017/pact-test',
       AUTH_SECRET: 'test-auth-secret-value-not-real',
-      AUTH_URL: 'http://localhost:3000',
       CRON_SECRET: 'test-cron-secret-value-not-real',
       APP_TIMEZONE: 'Asia/Kolkata',
     },
