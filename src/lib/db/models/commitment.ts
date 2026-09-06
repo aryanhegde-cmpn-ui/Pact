@@ -72,6 +72,35 @@ const commitmentSchema = new mongoose.Schema(
     priority: { type: String, required: true, enum: prioritySchema.options },
 
     seriesId: { type: String, default: null, index: true },
+
+    /**
+     * Set when this commitment was generated from the study plan.
+     *
+     * Its presence is what makes this a plan-generated commitment rather than
+     * a manually created one -- which is the distinction that lets the
+     * creation guardrails be skipped. Nothing was typed, so there is no vague
+     * outcome for them to catch: the outcome and estimate come from the
+     * curriculum definition. See docs/product.md, Conflict 3.
+     */
+    blockId: { type: String, default: null },
+    /**
+     * The curriculum topic this occurrence is for, by stable key.
+     *
+     * A KEY, not an id: the topic definition is re-imported and can be
+     * replaced, and a commitment in the history must keep pointing at the
+     * topic it was actually about. Overridable -- the suggestion is a default,
+     * never a lock -- and a change appends PLAN_TOPIC_OVERRIDDEN.
+     */
+    curriculumTopicKey: { type: String, default: null },
+    /**
+     * Set once a person has chosen the topic themselves.
+     *
+     * The plan may re-resolve a suggestion that has gone stale -- an
+     * occurrence materialised a fortnight early can name a topic finished
+     * since -- but it must never overwrite a choice. A default the app quietly
+     * reverts is not a default, it is a lock that pretends otherwise.
+     */
+    topicOverridden: { type: Boolean, default: false },
     /** Local calendar date in APP_TIMEZONE, `YYYY-MM-DD`. */
     occurrenceDate: { type: String, default: null },
 

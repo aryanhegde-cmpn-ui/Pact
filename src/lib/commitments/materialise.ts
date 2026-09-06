@@ -1,11 +1,13 @@
 import 'server-only';
 
 import { occurrenceDatesInRange } from '@/lib/behavior/recurrence';
+import { loadPlanContext, planForBlock } from '@/lib/curriculum/plan';
 import { appendEvent } from '@/lib/db/events';
 import { enqueueForCommitment } from '@/lib/notifications/queue';
 import { getSettings } from '@/lib/notifications/settings';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { SeriesModel } from '@/lib/db/models/series';
+import type { BlockId } from '@/lib/schemas/curriculum';
 import type { RecurrenceRule } from '@/lib/schemas/series';
 import { LOOKAHEAD_DAYS } from '@/lib/schemas/series';
 import { addDays, zonedTimeToUtc, type DateKey } from '@/lib/time';
@@ -58,6 +60,16 @@ export async function materialiseRange(
     $or: [{ endDate: null }, { endDate: { $gte: rangeStart } }],
   }).lean();
 
+  /**
+   * The curriculum, if there is one, read once for the whole pass.
+   *
+   * Only loaded when a study block is actually in range, so an installation
+   * with no curriculum -- and every one starts that way -- pays nothing, and
+   * a study block with no imported workbook is simply an ordinary daily
+   * series rather than a broken one.
+   */
+  const plan = active.some((series) => series.blockId) ? await loadPlanContext(ownerId) : null;
+
   let created = 0;
   let raced = 0;
 
@@ -88,19 +100,32 @@ export async function materialiseRange(
       // The rule's wall clock, resolved to a UTC instant on that local date.
       const dueAt = zonedTimeToUtc(occurrenceDate, rule.timeOfDay, timeZone);
 
+      /**
+       * A study block names its topic; every other series does not.
+       *
+       * Resolved per occurrence because the answer depends on the DATE -- the
+       * weekly rhythm makes Monday machine coding and Thursday testing -- and
+       * a fortnight of lookahead materialised with today's answer would name
+       * the same topic fourteen times.
+       */
+      const blockId = series.blockId as BlockId | null;
+      const blockPlan = blockId && plan ? planForBlock(plan, blockId, occurrenceDate) : null;
+
       try {
         const doc = await CommitmentModel.create({
-          title: series.title,
-          outcome: series.outcome,
+          title: blockPlan?.title ?? series.title,
+          outcome: blockPlan?.outcome ?? series.outcome,
           dueAt,
           // Equal at creation. An occurrence that is later postponed keeps this
           // as the deadline it was originally born with.
           originalDueAt: dueAt,
-          estimateMinutes: rule.estimateMinutes,
+          estimateMinutes: blockPlan?.estimateMinutes ?? rule.estimateMinutes,
           status: 'pending',
-          priority: series.priority,
+          priority: blockPlan?.priority ?? series.priority,
           seriesId,
           occurrenceDate,
+          blockId,
+          curriculumTopicKey: blockPlan?.curriculumTopicKey ?? null,
           createdAt: now,
           startedAt: null,
           completedAt: null,
@@ -116,7 +141,20 @@ export async function materialiseRange(
           ts: now,
           // Not a user action: the rule produced this, not a person.
           source: 'system',
-          payload: { seriesId, occurrenceDate, dueAt: dueAt.toISOString() },
+          payload: {
+            seriesId,
+            occurrenceDate,
+            dueAt: dueAt.toISOString(),
+            ...(blockPlan
+              ? {
+                  blockId,
+                  curriculumTopicKey: blockPlan.curriculumTopicKey,
+                  // Why this topic, kept in the log so a suggestion the user
+                  // disagrees with can be argued with rather than guessed at.
+                  suggestionReasons: blockPlan.reasons,
+                }
+              : {}),
+          },
         });
 
         await appendEvent({
@@ -135,11 +173,11 @@ export async function materialiseRange(
         await enqueueForCommitment(
           {
             id: String(doc._id),
-            title: series.title,
-            outcome: series.outcome,
+            title: blockPlan?.title ?? series.title,
+            outcome: blockPlan?.outcome ?? series.outcome,
             dueAt,
-            estimateMinutes: rule.estimateMinutes,
-            priority: series.priority,
+            estimateMinutes: blockPlan?.estimateMinutes ?? rule.estimateMinutes,
+            priority: blockPlan?.priority ?? series.priority,
             leadMinutes: null,
           },
           settings,

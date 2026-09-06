@@ -478,6 +478,101 @@ The Worker in [`infra/tick`](infra/tick/README.md) holds **no logic** on
 purpose, so the scheduler stays swappable for cron-job.org or anything else
 that can make one authenticated request.
 
+## The curriculum
+
+The plan comes from a spreadsheet, `data/Aryan_SDE2_Frontend_Study_Plan_Jan2027.xlsx`,
+which is **committed and is the authority.** Where it contradicts an earlier
+tracker specification, it wins. `npm run curriculum:import` reads all four
+sheets through a dependency-free reader in `scripts/xlsx.ts`; the mapping is
+pure and lives in `src/lib/curriculum/import-map.ts`.
+
+**The import is idempotent and never touches progress.** `topicprogress` is a
+separate collection keyed on the same stable keys, and nothing in the import
+path writes to it. Re-running is the normal way to pick up a spreadsheet edit;
+an import that could lose progress is one nobody dares re-run, and a curriculum
+that cannot be re-imported drifts out of sync with its source until they are
+two different plans. Two things it will not overwrite, and reports instead: a
+phase moved by an explicit re-plan, and a practice target corrected by hand.
+
+The stable key is `block/module/topic/sub-topic`, slugged — derived from what a
+row **is** rather than where it sits, so inserting a row halfway down the sheet
+does not renumber every key below it and orphan their progress. Dry-run first;
+the report says how many rows the parser could not read.
+
+### The parser refuses to guess
+
+`practiceRaw` is stored **verbatim** and the parse sits alongside it, never
+instead of it. The rules are narrow: 21 of the 60 rows come in as `targetKind:
+'other'`, flagged, and listed at `/study/review` to be fixed by hand.
+
+That is the design working. "8–10 representative problems" has a target in it;
+"Whiteboard + edge cases" does not, and no pattern matching changes that. A
+target invented from "Choose storage for scenarios" becomes a number the plan
+measures progress against, and every reading of it is wrong while looking
+exactly like a number somebody set. An obvious gap gets fixed; a confident
+wrong answer does not. Text matching two kinds at once is flagged rather than
+resolved by precedence.
+
+### A playlist is a pool, not a course
+
+The workbook says so twice — the curriculum sheet's own header line, and every
+Core resource's "how to use": _"Daily; don't finish as a course"_, _"Pick
+relevant videos only"_.
+
+So **`Resource` has no progress, no percentage, no remaining count, and never
+will.** A source-scanning test fails on any identifier naming a pool and a
+score together, and on any division by the size of one. Progress belongs to a
+topic, which is a thing you can be done with; 40% of a shelf is not a fact
+about anybody. A percentage here would turn "watch the two videos on the thing
+you are weak at" into "get through 214 videos" and then reward the second —
+the anti-feature list's failure arriving by a different door.
+
+### Blocks, rhythm and the day's topic
+
+Three study blocks — DSA 07:00–08:00, Frontend 08:00–09:30, System Design
+09:30–10:00 — are **ordinary Series carrying a `blockId`.** They materialise
+through the existing machinery and produce ordinary Commitment occurrences.
+Never build a second scheduler for them.
+
+`materialiseRange` resolves the topic **per occurrence**, because the weekly
+rhythm makes Monday machine coding and Thursday testing; resolving once per
+pass would name the same topic for a fortnight. The suggestion is ordered by
+revision-on-Sunday, phase focus, day slant, P0 first, already-started, then
+sheet order — and it is **a default, never a lock.** Every alternative is
+offered, the reasons are shown, and an override sets `topicOverridden` so the
+plan will not quietly revert it.
+
+The estimate is the **block's** length, not the topic's parsed duration.
+"5-min verbal framework" is the size of the output; a five-minute estimate on a
+half-hour block makes the morning look cheaper than it is.
+
+### The evening
+
+**Never new material, and nothing at all when the morning blocks closed.** The
+sheet's two evening rows are both prohibitions: "Only finish an incomplete
+morning task or revise a weak topic", and "Protect sleep and consistency;
+don't turn every free hour into study — Priority".
+
+A day where everything closed is exactly the day it is tempting to offer a
+bonus, and precisely the day the sheet says to stop. When a block did not
+close, the evening points at **that existing commitment** rather than creating
+a second one — the morning work already has a deadline and a miss, and a
+duplicate row would double-count it everywhere.
+
+### Drift
+
+Phase-level: the proportion of the phase's **P0** topics done against the
+elapsed proportion of its dates, derived on read, ±10% tolerance.
+`needs-revision` does not count as done — it is the status meaning "finished
+badly", and counting it would make the number agree with the most optimistic
+reading of the user's own work. Ahead-of-schedule is computed too.
+
+**Nothing re-flows the plan.** Phase dates move only through `replanPhase()`,
+which requires a reason, shifts every later phase by the same amount rather
+than squeezing them, and appends `PLAN_REPLANNED`. `originalStartDate` and
+`originalEndDate` are immutable, because the original schedule is the only
+thing that makes "behind" mean anything.
+
 ## PWA
 
 The service worker in [`public/sw.js`](public/sw.js) is **hand-written and stays
@@ -613,6 +708,8 @@ src/lib/schemas/       zod schemas — source of truth for types
 src/lib/env.ts         environment schema + parsed values, server-only
 src/lib/behavior/      pure analysis functions, no I/O, clock passed in
 src/lib/notifications/ queue, delivery, dispatch, push, settings, inbox
+src/lib/curriculum/   import, suggestion, rhythm, evening rule, re-plan
+data/                 the study workbook -- the authority on the plan
 src/lib/db/migrations/ one-off index migrations
 infra/tick/            Cloudflare Worker: the per-minute tick, no logic
 src/components/pwa/    service worker registration, install, permission
@@ -644,15 +741,20 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 ## Current state
 
 Scaffold, auth, the core data model, an installable PWA, notifications with web
-push, the reckoning loop, **and the role/ownership model.**
+push, the reckoning loop, the role/ownership model, **and the curriculum with
+its daily generator.**
 
 Working: username or email sign-in, primary and overseer roles, ownership
 scoping across every collection with a scanner enforcing it, a permission
 matrix every route derives from, single-use invites with immediate revocation,
 and an overseer surface showing categories but not free text.
 
+Working, additionally: the workbook import, the three daily study blocks as
+Series, per-day topic suggestion with override, phase drift, and an explicit
+re-plan.
+
 Not built yet: rewards and consequences (the permission surface is ready for
-them), the curriculum, the study planner, and the behaviour engine.
+them), the video player, and the behaviour engine.
 
 The product is specified in [`docs/product.md`](docs/product.md), which is
 authoritative where this file disagrees. Decisions and their reasoning are in

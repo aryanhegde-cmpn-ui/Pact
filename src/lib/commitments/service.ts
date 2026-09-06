@@ -64,6 +64,11 @@ export interface CommitmentView {
   followUpDate: string | null;
   displacedBy: string | null;
   deadlineChanges: number;
+  /** Set when the study plan generated this. See the commitment model. */
+  blockId: string | null;
+  curriculumTopicKey: string | null;
+  /** True once the user chose the topic themselves. The plan never overrides it. */
+  topicOverridden: boolean;
 }
 
 function toView(
@@ -118,6 +123,9 @@ function toView(
     followUpDate: row.followUpDate?.toISOString() ?? null,
     displacedBy: row.displacedBy ?? null,
     deadlineChanges: events.filter((event) => event.type === 'DEADLINE_CHANGED').length,
+    blockId: (row as { blockId?: string | null }).blockId ?? null,
+    curriculumTopicKey: (row as { curriculumTopicKey?: string | null }).curriculumTopicKey ?? null,
+    topicOverridden: (row as { topicOverridden?: boolean }).topicOverridden ?? false,
   };
 }
 

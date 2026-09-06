@@ -25,10 +25,30 @@ export const eventTypeSchema = z.enum([
   'SERIES_CREATED',
   'SERIES_EDITED',
   'SERIES_ENDED',
+  /** The workbook was imported. Records what changed, so a plan has provenance. */
+  'CURRICULUM_IMPORTED',
+  /** A topic moved between not-started, in-progress, done and needs-revision. */
+  'TOPIC_PROGRESS_CHANGED',
+  /** The day's suggested topic was swapped for another. A suggestion, never a lock. */
+  'PLAN_TOPIC_OVERRIDDEN',
+  /**
+   * A phase's dates were moved, deliberately, with a reason.
+   *
+   * The ONLY way the schedule changes. Falling behind does not move it: see
+   * `src/lib/behavior/drift.ts`, which computes the gap and writes nothing.
+   */
+  'PLAN_REPLANNED',
 ]);
 export type EventType = z.infer<typeof eventTypeSchema>;
 
-export const entityTypeSchema = z.enum(['commitment', 'series']);
+export const entityTypeSchema = z.enum([
+  'commitment',
+  'series',
+  /** A curriculum topic, identified by its stable key rather than a row id. */
+  'topic',
+  /** The plan as a whole: imports and re-plans, which belong to no single row. */
+  'plan',
+]);
 export type EntityType = z.infer<typeof entityTypeSchema>;
 
 /**
