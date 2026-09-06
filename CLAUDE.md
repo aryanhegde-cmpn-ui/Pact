@@ -61,25 +61,55 @@ Never build these. They are not "later", not "behind a flag", not "opt-in".
 - XP
 - Levels
 - Badges
-- Streaks
 - Confetti
 - Celebratory animation
 - Leaderboards
-- Any reward for **creating** or **reorganising** tasks
-- Any score driven by **task volume**
+- Any reward for **creating** or **reorganising** commitments
+- Any score driven by **commitment volume**
 
 The reasoning: every one of these rewards _engagement with the tool_ rather
 than _execution of the work_. They make tidying the backlog feel like progress.
 This app exists to make the gap between commitment and execution visible, and a
 reward layer papers directly over that gap.
 
-A streak in particular is a lie with a number attached: it converts one missed
-day into a reason to stop looking at the app entirely, which is the opposite of
-what this is for.
-
 If a request seems to want one of these, propose the underlying need instead —
 usually it is "I want to see whether I am improving", which is answered by
 honest trend data over the event log, not by a score.
+
+### Rewards and consequences ARE intended — administered by a person
+
+The prohibition above is on **in-app, self-administered, symbolic** rewards.
+It is not a prohibition on stakes.
+
+**Real-world rewards and consequences, administered by an Overseer, are an
+intended feature.** A second person holds the outcome: they see the adherence
+record and grant or withhold something that actually matters outside the app.
+
+That is a different mechanism, not a softer version of the same one. A badge is
+a number the app gives itself for behaviour it also measures — a closed loop
+with no external referent. A consequence administered by someone who knows you
+cannot be gamed by reorganising a backlog, and cannot be shrugged off by
+closing the tab.
+
+The app's job in that arrangement is to be **an honest witness**: report what
+happened, accurately, including the parts that are unflattering. It never
+decides the reward, never applies it, and never softens the record to make the
+conversation easier.
+
+### Adherence is a rolling rate, never a streak
+
+Adherence is displayed as a **rolling rate over a window** — "you kept 14 of
+the last 20" — never as a count of consecutive days.
+
+A streak is a lie with a number attached. It converts one missed day into a
+reason to stop looking at the app entirely: the number resets to zero, the
+sunk investment evaporates, and the rational move becomes avoidance. It also
+rewards the wrong thing, since protecting a streak means avoiding hard
+commitments rather than keeping them.
+
+A rolling rate degrades gracefully. One miss moves it a little, an honest
+pattern moves it a lot, and recovery is always visible as the window advances.
+It is also the number an Overseer can act on.
 
 ## Data ownership
 
@@ -87,25 +117,20 @@ honest trend data over the event log, not by a score.
 store.** Every field is owned here, written here, and read here. Nothing this
 app needs lives anywhere else.
 
-### Google is postponed
+### Google is removed
 
-Google Tasks and Calendar integration is **postponed**, not in progress. There
-is no sync code, and none should be written.
+Google Tasks and Calendar are **not part of this architecture.** Not postponed,
+not deferred, not behind a flag — removed. There is no sync code, no adapter,
+no reserved field, and none should be written.
 
-When Google is eventually added it is strictly:
+Earlier revisions of this file described Google as "postponed" and sketched a
+future one-way mirror. That is withdrawn. A postponed integration still shapes
+decisions: it invites reserved fields, "we'll need this for sync later"
+abstractions, and hesitation about owning a value outright. MongoDB owns
+everything, full stop.
 
-- an **optional one-way mirror OUT of Pact**, and
-- an **optional read-only data source**.
-
-It **never owns a field**, and it is **never required for the app to
-function**. Pact must work completely with Google absent, disconnected, or
-broken. Any design that makes a Google response authoritative over a local
-value is wrong, and any design that blocks a user action on a Google call
-being reachable is wrong.
-
-There is no due-date reconciliation problem any more, because there is no
-reconciliation. `dueAt` is a local field with a real time on it, and nothing
-external gets to overwrite it.
+If a Google integration is ever genuinely wanted, it is a new proposal that
+faces the feature test from scratch, not a plan already agreed.
 
 ### Authentication
 
@@ -190,6 +215,50 @@ opened the app.
 When the notification tick arrives it will emit these proactively. Both paths go
 through `appendEvent` and the same index, so whichever gets there first wins and
 the derived read keeps working either way.
+
+## The reckoning loop
+
+A missed deadline is not an ending; it is the point at which there is something
+worth asking about. **Needs-reckoning is derived on read**, exactly like the
+miss it follows — `now > dueAt`, status open, and no `RECKONING_SUBMITTED` for
+_this_ deadline. Never a stored flag.
+
+While a miss is unanswered:
+
+- **It cannot be rescheduled.** `changeDeadline()` refuses it. This is the
+  whole point: rescheduling without answering is the frictionless drag that
+  lets a deadline move ten times while the record shows a series of neutral
+  replans.
+- **It sorts above everything else** wherever work is listed.
+- **Its notifications stop.** An unanswered miss must not generate a second
+  wave about a deadline that has demonstrably passed.
+
+Three questions, in order:
+
+1. **Did you actually complete it?** If yes, the completion is recorded at its
+   **real time**, and the history shows completed-late. Never on-time.
+2. **Why?** One of twelve reasons — a closed list, because free text cannot be
+   counted and a reason that cannot be counted cannot show a pattern.
+3. **What changes?** A recovery action, offered based on the reason.
+
+> **A reason that produces no consequence is journaling.**
+
+Every recovery option in `src/lib/commitments/reckoning.ts` writes something
+the system can observe or enforce — a rewritten outcome, created commitments, a
+required next action, a blocked status with a named person. If a branch there
+ever becomes a no-op, that option has stopped being a recovery and become a
+feeling. Free text sits alongside every option, never instead of one.
+
+**Reckonings are keyed to the deadline they answer**, via `ts`, like misses. A
+commitment missed, reckoned, rescheduled and missed again requires a second
+reckoning and produces two records. The unique partial index covers both
+`DEADLINE_MISSED` and `RECKONING_SUBMITTED`, and **that list must match
+`ONCE_PER_ENTITY`** — a type in one and not the other looks deduplicated in
+tests and races in production. A test asserts they agree.
+
+`changeDeadline()` requires a **category** as well as free text, and records
+original, previous, new, both deltas, the category, the note and the count of
+prior changes.
 
 ## Series and occurrences
 
@@ -440,7 +509,7 @@ src/app/(shell)/       routes rendered inside the nav shell (signed-in only)
 src/app/api/           route handlers
 src/proxy.ts           route protection (Next 16's renamed middleware)
 src/lib/auth/          Auth.js config, password hashing, throttling, returnTo
-src/lib/commitments/   commitment + series services, materialisation, deadline
+src/lib/commitments/   commitment + series services, reckoning, timeline, deadline
 src/lib/db/            mongoose connection + models
 src/lib/db/events.ts   appendEvent — the ONLY write path into the event log
 src/lib/schemas/       zod schemas — source of truth for types
@@ -477,22 +546,23 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 
 ## Current state
 
-Scaffold, tooling, email/password auth, the core data model, an installable
-PWA, the notification queue, **and web push delivered by an external tick**.
+Scaffold, auth, the core data model, an installable PWA, notifications with
+web push, and **the miss → reckoning → recovery loop.**
 
-Working: Commitments with a locked-down deadline, an append-only event log,
-derived miss detection, Series with lazily materialised occurrences, a
-notification queue wired to the whole commitment lifecycle, in-app and web-push
-delivery over that one queue, a settings surface, and a home-screen-installable
-app with a real offline state.
+Working: Commitments with a locked-down deadline that cannot move while a miss
+is unanswered, an append-only event log, derived miss and needs-reckoning
+state, the three-step reckoning flow with enforced recovery actions, a
+commitment timeline, a repeated-postponement view, Series with lazily
+materialised occurrences, and in-app plus web-push delivery over one queue.
 
-Not built yet, deliberately: the study planner, and the behaviour engine that
-reads the event log. `npm run seed:history` generates 60 days of synthetic
-history, including the repeated-miss-after-postponement pattern that engine has
-to be able to see.
+Not built yet: the study planner, the Overseer surface, and the behaviour
+engine that reads the event log. `npm run seed:history` generates 60 days of
+synthetic history with the repeated-miss-after-postponement pattern that engine
+has to be able to see.
 
 Decisions already made and their reasoning are in
-[`docs/decisions.md`](docs/decisions.md).
+[`docs/decisions.md`](docs/decisions.md). The product's purpose is in
+[`docs/product.md`](docs/product.md).
 
 <!-- BEGIN:nextjs-agent-rules -->
 

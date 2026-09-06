@@ -2,6 +2,7 @@ import 'server-only';
 
 import { isMissed } from '@/lib/behavior/miss';
 import { appendEvent } from '@/lib/db/events';
+import { cancelPendingForCommitment } from '@/lib/notifications/queue';
 import type { CommitmentStatus } from '@/lib/schemas/commitment';
 
 interface MissCandidate {
@@ -69,6 +70,25 @@ export async function recordObservedMisses(
         payload: { dueAt: commitment.dueAt.toISOString(), noticedAt: now.toISOString() },
       }),
     ),
+  );
+
+  /**
+   * Entering needs-reckoning silences the queue for that commitment.
+   *
+   * An unanswered miss must not generate a second wave. The accountability
+   * check has already been sent; continuing to fire DEADLINE_NOW and further
+   * reminders about a deadline that has demonstrably passed is nagging about a
+   * question the user has already been asked. It resumes when the reckoning is
+   * answered and a new deadline is set, which re-enqueues.
+   *
+   * Only newly-observed misses, so this is not re-run on every read.
+   */
+  const newlyMissed = results
+    .map((result, index) => (result.appended ? missed[index] : null))
+    .filter((commitment): commitment is MissCandidate => commitment !== null);
+
+  await Promise.all(
+    newlyMissed.map((commitment) => cancelPendingForCommitment(String(commitment._id))),
   );
 
   return results.filter((result) => result.appended).length;

@@ -87,9 +87,11 @@ describe('changeDeadlineSchema', () => {
     const parsed = changeDeadlineSchema.parse({
       newDueAt: '2026-10-01T00:00:00Z',
       reason: 'Blocked on review',
+      category: 'blocked-externally',
     });
 
     expect(parsed.reason).toBe('Blocked on review');
+    expect(parsed.category).toBe('blocked-externally');
   });
 });
 

@@ -68,6 +68,23 @@ const commitmentSchema = new mongoose.Schema(
     /** Overrides the default notification lead time for this commitment only. */
     leadMinutes: { type: Number, default: null },
 
+    // ---- Set by recovery actions -----------------------------------------
+    // These are the observable effects of a reckoning. Each one exists so a
+    // recovery choice changes something the system can act on rather than
+    // being a note about an intention.
+
+    /** The concrete next action. Blocks rescheduling after a "too vague" miss. */
+    nextAction: { type: String, default: null },
+    /** Who this is waiting on, from a `mark-blocked` recovery. */
+    blockedOn: { type: String, default: null },
+    followUpDate: { type: Date, default: null },
+    /** The commitment that displaced this one. */
+    displacedBy: { type: String, default: null },
+    /** Commitments produced by a `split` recovery. */
+    splitInto: { type: [String], default: [] },
+    /** Set when this commitment IS a 15-minute recovery start session. */
+    startSessionFor: { type: String, default: null },
+
     createdAt: { type: Date, required: true, default: () => new Date() },
     startedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },

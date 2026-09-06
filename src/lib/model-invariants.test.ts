@@ -184,6 +184,35 @@ describe('event log is append-only', () => {
     expect(source).toContain('rejectResave');
   });
 
+  it('keeps the unique index in step with ONCE_PER_ENTITY', () => {
+    /**
+     * The two lists have to agree, and nothing else makes them.
+     *
+     * A type added to ONCE_PER_ENTITY but missing from the index filter looks
+     * deduplicated in unit tests -- where the mock enforces the key -- and
+     * races in production, because the only remaining protection is a
+     * read-then-write in the service. That is precisely the failure this
+     * codebase avoids everywhere else.
+     */
+    const schemaSource = readFileSync(join(SRC, 'lib/schemas/event.ts'), 'utf8');
+    const modelSource = readFileSync(join(SRC, 'lib/db/models/event.ts'), 'utf8');
+
+    const declared = /ONCE_PER_ENTITY[^=]*=\s*\[([^\]]*)\]/s
+      .exec(schemaSource)?.[1]
+      ?.match(/'([A-Z_]+)'/g)
+      ?.map((quoted) => quoted.replaceAll("'", ''))
+      .sort();
+
+    const indexed = /partialFilterExpression:\s*\{[^}]*\$in:\s*\[([^\]]*)\]/s
+      .exec(modelSource)?.[1]
+      ?.match(/'([A-Z_]+)'/g)
+      ?.map((quoted) => quoted.replaceAll("'", ''))
+      .sort();
+
+    expect(declared).toBeDefined();
+    expect(indexed).toEqual(declared);
+  });
+
   it('enforces one DEADLINE_MISSED per entity with a unique index', () => {
     const source = readFileSync(join(SRC, 'lib/db/models/event.ts'), 'utf8');
 

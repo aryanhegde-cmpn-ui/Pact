@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const store = vi.hoisted(() => ({
   rows: [] as { entityId: string; type: string; ts: Date; payload: unknown; source: string }[],
   createCalls: 0,
+  cancelled: [] as string[],
 }));
 
 vi.mock('@/lib/db/models/event', () => ({
@@ -45,6 +46,15 @@ vi.mock('@/lib/db/models/event', () => ({
   },
 }));
 
+// Entering needs-reckoning now silences the queue for that commitment, so the
+// cancellation is part of what recordObservedMisses does.
+vi.mock('@/lib/notifications/queue', () => ({
+  cancelPendingForCommitment: async (commitmentId: string) => {
+    store.cancelled.push(commitmentId);
+    return 0;
+  },
+}));
+
 const { appendEvent } = await import('@/lib/db/events');
 const { recordObservedMisses } = await import('@/lib/commitments/miss-detection');
 
@@ -54,6 +64,7 @@ const NOW = new Date('2026-09-05T18:00:00.000Z');
 beforeEach(() => {
   store.rows = [];
   store.createCalls = 0;
+  store.cancelled = [];
 });
 
 describe('appendEvent', () => {
@@ -304,5 +315,37 @@ describe('miss events are timestamped at the deadline', () => {
     expect((store.rows[0]?.payload as { noticedAt: string }).noticedAt).toBe(
       noticedAt.toISOString(),
     );
+  });
+});
+
+describe('an unanswered miss silences its notifications', () => {
+  it('cancels pending notifications when a miss is first observed', async () => {
+    await recordObservedMisses(
+      [{ _id: 'c1', dueAt: DUE, status: 'pending' }],
+      new Date('2026-09-05T18:00:00Z'),
+    );
+
+    // Otherwise an unanswered miss generates a second wave of reminders about
+    // a deadline that has demonstrably already passed.
+    expect(store.cancelled).toEqual(['c1']);
+  });
+
+  it('does not re-cancel on subsequent reads of the same miss', async () => {
+    const commitment = [{ _id: 'c1', dueAt: DUE, status: 'pending' as const }];
+
+    await recordObservedMisses(commitment, new Date('2026-09-05T18:00:00Z'));
+    await recordObservedMisses(commitment, new Date('2026-09-06T09:00:00Z'));
+
+    // Only the newly-observed miss cancels; the duplicate append is a no-op.
+    expect(store.cancelled).toEqual(['c1']);
+  });
+
+  it('cancels nothing when nothing was missed', async () => {
+    await recordObservedMisses(
+      [{ _id: 'c1', dueAt: new Date('2026-12-01T00:00:00Z'), status: 'pending' }],
+      NOW,
+    );
+
+    expect(store.cancelled).toEqual([]);
   });
 });

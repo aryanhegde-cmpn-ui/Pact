@@ -459,3 +459,86 @@ single most common reason web push appears to stop working for no reason.
   one they are at means the notification does not arrive.
 - Endpoints are returned to the client as a suffix only. The full endpoint is a
   capability URL — anyone holding it can push to that device.
+
+## 013 — The seeded password is never written to a file
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`npm run seed:user` prints the password once to stdout and stores only its
+hash. It honours `SEED_USER_PASSWORD` **only when supplied by the shell**, and
+deliberately ignores a value found in `.env.local`, saying so when it does.
+
+### Why
+
+`@next/env` runs dotenv values through dotenv-expand, which rewrites them:
+
+```
+pa$$w0rd-with-dollars  ->  pa$-with-dollars
+secret-${HOME}-here    ->  secret-/home/you-here
+pass#word              ->  pass
+```
+
+A password containing any of those is a different string when it is read back.
+The script then hashes the mangled version, and the account cannot be signed
+into with the password the operator believes they set — with no error anywhere,
+because nothing failed. The symptom is "sign-in stopped working", which sends
+you looking at auth rather than at a dotenv parser.
+
+Distinguishing shell-provided from file-provided needs a snapshot of
+`process.env` taken _before_ the dotenv load, which is what
+`scripts/shell-env.ts` exists for.
+
+Not writing it at all is the stronger fix. A secret in a file is a secret that
+can be read back wrongly, committed accidentally, or drift out of step with the
+hash — and none of those failure modes announce themselves.
+
+### Consequences
+
+- The password is shown exactly once. Losing it means `--force` and a new one.
+- `SEED_USER_PASSWORD` is gone from `.env.example`.
+- Generated passwords are base64url, so they contain no character that any
+  dotenv parser can misread even if someone pastes one somewhere.
+
+## 014 — A recovery action must change something
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+Every option in step three of the reckoning produces an effect the system can
+observe or enforce: a rewritten outcome and estimate, commitments created now,
+a required next action, a status change with a named person and a follow-up
+date, an abandonment with a reason, or a link to the commitment that displaced
+it. Free text is available alongside every option, never instead of one.
+
+### Why
+
+A reason that produces no consequence is journaling.
+
+The tempting design is a reason picker and a notes field: it is easy to build,
+it feels reflective, and it changes nothing. The next attempt is identical to
+the last one, so the same miss happens again, and the record fills with
+articulate accounts of the same failure. Writing down "I underestimated it" for
+the fourth time is not insight; it is a diary.
+
+Requiring an effect also makes the reason worth asking. "I was waiting on
+someone" becomes a blocked status with a name and a date to chase — which the
+system can surface later. Without that, it is a sentence nobody reads again.
+
+The enforcement is structural: the branch in `applyRecovery` is exhaustive, so
+a new action added to the schema without an effect is a compile error rather
+than a silent no-op.
+
+### Consequences
+
+- Adding a recovery option means designing its effect first.
+- Some effects are destructive — `split` closes the original, `abandon` closes
+  the commitment. Both are recorded as events, so nothing is lost from the
+  history.
+- `define-next-action` additionally _gates_ rescheduling: the concrete action
+  must exist before a new deadline can be set. A recovery that is merely
+  advisory would be advice.

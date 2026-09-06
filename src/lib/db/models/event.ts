@@ -73,7 +73,20 @@ eventSchema.index({ synthetic: 1 }, { sparse: true });
  */
 eventSchema.index(
   { entityId: 1, type: 1, ts: 1 },
-  { unique: true, partialFilterExpression: { type: 'DEADLINE_MISSED' } },
+  {
+    unique: true,
+    /**
+     * Both once-per-deadline types, and the list MUST match ONCE_PER_ENTITY in
+     * src/lib/schemas/event.ts.
+     *
+     * RECKONING_SUBMITTED is here for idempotency under a double submission.
+     * Without it the only protection is a read-then-write in the service,
+     * which races between the two steps -- two taps a few milliseconds apart
+     * both see "not yet reckoned" and both write, recording the same miss
+     * answered twice and applying the recovery twice.
+     */
+    partialFilterExpression: { type: { $in: ['DEADLINE_MISSED', 'RECKONING_SUBMITTED'] } },
+  },
 );
 
 const APPEND_ONLY =

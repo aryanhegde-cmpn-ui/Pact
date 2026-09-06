@@ -56,7 +56,17 @@ export function NotificationBell(): React.JSX.Element {
     };
   }, [load]);
 
-  async function act(item: InboxItem, action: 'complete' | 'abandon' | 'open'): Promise<void> {
+  async function act(
+    item: InboxItem,
+    action: 'complete' | 'abandon' | 'reckon' | 'open',
+  ): Promise<void> {
+    if (action === 'reckon' && item.commitmentId) {
+      // Opens the flow rather than recording anything: this path needs input.
+      setOpen(false);
+      router.push(`/dashboard?reckon=${item.commitmentId}`);
+      return;
+    }
+
     if (action === 'open') {
       setOpen(false);
       router.push('/dashboard');
