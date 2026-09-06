@@ -42,6 +42,21 @@ const seriesSchema = new mongoose.Schema(
 
     priority: { type: String, required: true, enum: prioritySchema.options },
 
+    /**
+     * The curriculum block this series IS, when it is one of the three daily
+     * study windows.
+     *
+     * Set so the curriculum uses the recurrence machinery that already exists
+     * rather than a second, parallel one. Everything about materialisation,
+     * idempotency, notifications and occurrence history then applies to a
+     * study block for free -- and a study occurrence can be completed,
+     * postponed and reckoned about exactly like any other commitment, which is
+     * the whole reason occurrences are real documents.
+     *
+     * Null for an ordinary series.
+     */
+    blockId: { type: String, default: null },
+
     /** Local calendar dates in APP_TIMEZONE, `YYYY-MM-DD`. */
     startDate: { type: String, required: true },
     /** Null means open-ended. */

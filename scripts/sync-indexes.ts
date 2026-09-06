@@ -14,7 +14,13 @@ import './load-env';
 
 import mongoose from 'mongoose';
 
+import { BlockModel } from '@/lib/db/models/block';
 import { CommitmentModel } from '@/lib/db/models/commitment';
+import { CurriculumTopicModel } from '@/lib/db/models/curriculum-topic';
+import { InterviewPrepItemModel } from '@/lib/db/models/interview-prep-item';
+import { PhaseModel } from '@/lib/db/models/phase';
+import { ResourceModel } from '@/lib/db/models/resource';
+import { TopicProgressModel } from '@/lib/db/models/topic-progress';
 import { EventModel } from '@/lib/db/models/event';
 import { NotificationModel } from '@/lib/db/models/notification';
 import { PushSubscriptionModel } from '@/lib/db/models/push-subscription';
@@ -33,6 +39,13 @@ const MODELS = [
   ['series', SeriesModel],
   ['settings', SettingsModel],
   ['users', UserModel],
+  // The curriculum.
+  ['blocks', BlockModel],
+  ['phases', PhaseModel],
+  ['curriculumtopics', CurriculumTopicModel],
+  ['topicprogress', TopicProgressModel],
+  ['resources', ResourceModel],
+  ['interviewprepitems', InterviewPrepItemModel],
 ] as const;
 
 async function main(): Promise<void> {

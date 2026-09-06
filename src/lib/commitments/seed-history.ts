@@ -20,7 +20,8 @@ import { addDays, toDateKey, zonedTimeToUtc, type DateKey } from '@/lib/time';
  * the engine reads is indistinguishable from real history apart from `source`.
  */
 
-export type PatternName = 'chronic-postponer' | 'late-night-misser' | 'steady' | 'mixed';
+export type PatternName =
+  'on-track' | 'chronic-postponer' | 'late-night-misser' | 'steady' | 'mixed';
 
 export interface SeedPattern {
   /** Chance a commitment is completed at all. */
@@ -40,6 +41,30 @@ export interface SeedPattern {
 }
 
 export const PATTERNS: Record<Exclude<PatternName, 'mixed'>, SeedPattern> = {
+  /**
+   * A well-behaved history. Most deadlines are met, on time.
+   *
+   * This fixture exists so that "the detector found nothing" is a result that
+   * can be distinguished from "the detector is broken". Every other persona
+   * here is pathological by construction, and a pattern-finder run only
+   * against those looks identical whether it works or always fires. The
+   * correct output for this data is close to silence, and a behavioural
+   * feature that produces alarming output against it has a bug.
+   *
+   * Not zero misses: a history with no misses at all is unrealistic, and would
+   * not exercise the miss path at all.
+   */
+  'on-track': {
+    completionRate: 0.97,
+    lateRate: 0.04,
+    postponeRate: 0.06,
+    meanPostponements: 1,
+    abandonRate: 0.6,
+    // Replans ahead of time when at all, which is not avoidance.
+    postponeAfterMissRate: 0,
+    hours: [8, 9, 10, 14],
+  },
+
   /**
    * Ships eventually, but the deadline moves repeatedly first. Completion rate
    * looks respectable; the postponement chain is where the truth is.

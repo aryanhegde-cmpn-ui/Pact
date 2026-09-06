@@ -27,7 +27,8 @@
     "db:migrate:miss-index": "NODE_OPTIONS=--conditions=react-server tsx scripts/migrate-miss-index.ts",
     "vapid:generate": "tsx scripts/generate-vapid.ts",
     "db:migrate:identity": "NODE_OPTIONS=--conditions=react-server tsx scripts/migrate-identity.ts",
-    "change:username": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-username.ts"
+    "change:username": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-username.ts",
+    "curriculum:import": "NODE_OPTIONS=--conditions=react-server tsx scripts/import-curriculum.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",

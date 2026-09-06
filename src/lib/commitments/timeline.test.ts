@@ -133,3 +133,45 @@ describe('buildTimeline ordering', () => {
     expect(entry?.line).toContain('Kept putting it off');
   });
 });
+
+describe('legacy rows without a category', () => {
+  it('renders as legacy rather than as a category left blank', async () => {
+    // Two such rows exist in the real database, written before the category
+    // became required.
+    event('DEADLINE_CHANGED', '2026-09-05T10:00:00Z', {
+      to: '2026-09-09T12:00:00Z',
+      reason: 'Ran out of time',
+      deltaDaysFromPrevious: 4,
+      // No `category` key at all.
+    });
+
+    const [entry] = (await buildTimeline('c1', OWNER)).entries;
+
+    expect(entry?.line).toContain('legacy, no category');
+    expect(entry?.line).toContain('Ran out of time');
+  });
+
+  it('does not break the aggregate, and is excluded from it', async () => {
+    event('DEADLINE_CHANGED', '2026-09-02T10:00:00Z', { category: 'avoidance' });
+    event('DEADLINE_CHANGED', '2026-09-03T10:00:00Z', {});
+    event('DEADLINE_CHANGED', '2026-09-04T10:00:00Z', {});
+
+    const timeline = await buildTimeline('c1', OWNER);
+
+    // All three counted as changes...
+    expect(timeline.postponements.changes).toBe(3);
+    // ...but the uncategorised pair must not win "most common", which would
+    // report a phantom pattern.
+    expect(timeline.postponements.mostCommonCategory).toBe('avoidance');
+  });
+
+  it('reports no category when every change is legacy', async () => {
+    event('DEADLINE_CHANGED', '2026-09-02T10:00:00Z', {});
+    event('DEADLINE_CHANGED', '2026-09-03T10:00:00Z', {});
+
+    const timeline = await buildTimeline('c1', OWNER);
+
+    expect(timeline.postponements.changes).toBe(2);
+    expect(timeline.postponements.mostCommonCategory).toBeNull();
+  });
+});

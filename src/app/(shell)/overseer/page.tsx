@@ -94,16 +94,22 @@ export default async function OverseerPage(): Promise<React.JSX.Element> {
       </Section>
 
       <Section title="Why deadlines moved">
-        {snapshot.deadlineChanges.length === 0 ? (
+        {snapshot.deadlineChanges.length === 0 && snapshot.legacyChanges === 0 ? (
           <Empty>No deadline has moved.</Empty>
         ) : (
           <ul className="flex flex-col gap-2xs">
             {snapshot.deadlineChanges.map((row) => (
-              <li key={row.category ?? 'uncategorised'} className="text-sm">
-                {row.label ?? 'Uncategorised'}
+              <li key={row.category} className="text-sm">
+                {row.label}
                 <span className="text-text/50 text-xs"> · {row.count}&times;</span>
               </li>
             ))}
+            {snapshot.legacyChanges > 0 ? (
+              <li className="text-text/40 text-sm">
+                Legacy, before reasons were categorised
+                <span className="text-xs"> · {snapshot.legacyChanges}&times;</span>
+              </li>
+            ) : null}
           </ul>
         )}
       </Section>

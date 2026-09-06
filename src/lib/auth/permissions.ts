@@ -26,6 +26,11 @@ export type Capability =
   | 'reckoning:submit'
   | 'session:read'
   | 'session:write'
+  // --- The study plan ------------------------------------------------------
+  /** The curriculum, the phases, today's blocks and the review list. */
+  | 'curriculum:read'
+  /** Topic progress, target corrections, topic overrides and re-planning. */
+  | 'curriculum:write'
   // --- The record ----------------------------------------------------------
   /** Completion state, misses, deadline changes, reckoning CATEGORIES. */
   | 'progress:read'
@@ -66,6 +71,8 @@ const MATRIX: Record<Role, readonly Capability[]> = {
     'reckoning:submit',
     'session:read',
     'session:write',
+    'curriculum:read',
+    'curriculum:write',
     'progress:read',
     'notes:read',
     'consequence:read',
@@ -82,7 +89,11 @@ const MATRIX: Record<Role, readonly Capability[]> = {
    *
    * `notes:read` is absent and granted conditionally -- see
    * `canReadNotes`. `session:read` is absent because focus session contents
-   * are the primary's working material, not evidence. `events:read` is absent
+   * are the primary's working material, not evidence. `curriculum:read` is
+   * absent deliberately rather than by oversight: what the overseer needs is
+   * whether commitments are being kept, which `progress:read` already gives
+   * them. Granting the plan itself is a decision for whoever builds the
+   * overseer's view of it, not a side effect of the curriculum landing. `events:read` is absent
    * for everyone: the raw log is exposed through purpose-built read models
    * instead, which is both safer and simpler than filtering events per role at
    * every call site.
@@ -122,6 +133,8 @@ export const ALL_CAPABILITIES: readonly Capability[] = [
   'reckoning:submit',
   'session:read',
   'session:write',
+  'curriculum:read',
+  'curriculum:write',
   'progress:read',
   'notes:read',
   'events:read',

@@ -103,7 +103,9 @@ function toEntry(event: {
 
     case 'DEADLINE_CHANGED': {
       const category = payload.category as DeadlineChangeCategory | undefined;
-      const label = category ? DEADLINE_CATEGORY_LABELS[category] : 'no category';
+      // Legacy rows predate the requirement; say so rather than implying one was
+      // chosen and left blank.
+      const label = category ? DEADLINE_CATEGORY_LABELS[category] : 'legacy, no category';
       const delta = Number(payload.deltaDaysFromPrevious ?? 0);
       const move = delta >= 0 ? `+${delta}d` : `${delta}d`;
 
@@ -186,6 +188,8 @@ export interface PostponementRow {
   totalDaysPostponed: number;
   mostCommonCategory: DeadlineChangeCategory | null;
   mostCommonCategoryLabel: string | null;
+  /** True when some changes predate the category requirement. */
+  hasLegacyChanges: boolean;
   interventionCandidate: boolean;
   dueAt: string;
   originalDueAt: string;
@@ -254,6 +258,17 @@ export async function listPostponements(ownerId: string): Promise<PostponementGr
       mostCommonCategoryLabel: summary.mostCommonCategory
         ? DEADLINE_CATEGORY_LABELS[summary.mostCommonCategory]
         : null,
+      /**
+       * Rows predating the required category.
+       *
+       * Rendered as legacy rather than as a category called "none", and
+       * excluded from the aggregate rather than counted as a bucket -- a
+       * phantom category competing for "most common" would misreport the
+       * actual pattern.
+       */
+      hasLegacyChanges: (byEntity.get(id) ?? []).some(
+        (event) => !(event.payload as { category?: string })?.category,
+      ),
       interventionCandidate: summary.interventionCandidate,
       dueAt: commitment.dueAt.toISOString(),
       originalDueAt: commitment.originalDueAt.toISOString(),

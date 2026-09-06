@@ -78,6 +78,7 @@ async function main(): Promise<void> {
   const result = await seedUser({
     email: email.data,
     password: password.data,
+    username: env.SEED_USER_USERNAME,
     displayName: process.env.SEED_USER_NAME,
     force: process.argv.includes('--force'),
   });
@@ -85,7 +86,11 @@ async function main(): Promise<void> {
   console.log(
     `${result.created ? 'Created' : 'Updated'} user ${result.email} (${result.displayName}).`,
   );
+  console.log(`Sign in with the username ${result.username} or the email address.`);
   if (!result.created) console.log('Password reset on the existing account.');
+  if (result.repaired) {
+    console.log('Backfilled username, role and ownerId on a row seeded before they existed.');
+  }
 
   if (generated) {
     console.log('');

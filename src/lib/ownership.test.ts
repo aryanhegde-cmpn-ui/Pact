@@ -28,6 +28,14 @@ const SCOPED_MODELS = [
   'NotificationModel',
   'PushSubscriptionModel',
   'SettingsModel',
+  // The curriculum. Every row of the plan belongs to one primary, including
+  // the definitions -- an overseer must not read a plan by guessing an id.
+  'BlockModel',
+  'PhaseModel',
+  'CurriculumTopicModel',
+  'TopicProgressModel',
+  'ResourceModel',
+  'InterviewPrepItemModel',
 ];
 
 /** Query methods that read or write rows and therefore need a scope. */
@@ -62,6 +70,12 @@ const EXEMPT = new Set([
   'lib/db/models/user.ts',
   'lib/db/models/relationship.ts',
   'lib/db/models/login-attempt.ts',
+  'lib/db/models/block.ts',
+  'lib/db/models/phase.ts',
+  'lib/db/models/curriculum-topic.ts',
+  'lib/db/models/topic-progress.ts',
+  'lib/db/models/resource.ts',
+  'lib/db/models/interview-prep-item.ts',
   // The scanner itself.
   'lib/ownership.test.ts',
 ]);

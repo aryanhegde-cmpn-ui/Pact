@@ -16,7 +16,10 @@ export default defineConfig({
     // Node by default -- almost everything here is server code. The handful of
     // component tests opt into a DOM per file with `@vitest-environment`.
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // `scripts/` is included for the workbook reader, which is operator
+    // tooling rather than app code but is the one thing standing between a
+    // 60-row spreadsheet and the database.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.ts'],
     /**
      * Env validation runs at module load, so the suite needs a complete, obviously
      * fake environment in place before any test file is imported. Nothing here

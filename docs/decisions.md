@@ -682,3 +682,232 @@ Opt-in keeps both: the useful signal, and the conditions that produce it.
   string, so a client cannot mistake "not shared" for "they wrote nothing".
 - The setting is `settings:write`, which the overseer does not hold. They
   cannot grant themselves access to it.
+
+## 019 — The workbook is the authority on the plan
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`data/Aryan_SDE2_Frontend_Study_Plan_Jan2027.xlsx` is committed to the
+repository and is the source the curriculum is imported from.
+`npm run curriculum:import` reads it with a dependency-free reader in
+`scripts/xlsx.ts` and maps it through pure functions in
+`src/lib/curriculum/import-map.ts`.
+
+### Why
+
+Hand-transcribing 60 topic rows, 13 resources, 14 rehearsal items, five phases
+and six daily blocks into a JSON file would make that file the authority, and
+the two would diverge the first time the spreadsheet changed and nobody
+remembered the copy.
+
+The reader is written rather than installed. The npm `xlsx` package is no
+longer published there by its maintainers and its last npm release carries a
+prototype-pollution advisory; a full parser is a large dependency for one
+operator script. An .xlsx is a zip of XML, Node ships inflate, and the file is
+machine-generated — so a reader for exactly this shape is about a hundred lines
+with no supply chain, and it is tested against the real file.
+
+Sections are located by their header text, not by row number, because the Daily
+Plan sheet stacks three tables in one column range and a hardcoded index breaks
+silently when a row is inserted — silently being the problem.
+
+### Consequences
+
+- Re-running the import is the normal way to pick up a spreadsheet edit, so it
+  must be idempotent, and it is: the second run reports everything unchanged.
+- The reader handles cell values as text only. No formulas, no styles, no dates
+  as serial numbers. It throws rather than guessing if the file stops being
+  text.
+- `scripts/**/*.test.ts` is in the vitest include so the reader is tested.
+
+## 020 — The practice parser refuses to guess
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+The workbook's "Practice / Output" column is parsed into a `targetKind` of
+`problems`, `build`, `verbal`, `audit`, `explain` or `other`, with an optional
+numeric range and unit. Anything the narrow rules do not match — 21 of the 60
+rows — is imported as `other`, flagged, and listed at `/study/review` to be
+corrected by hand. `practiceRaw` is stored verbatim and never rewritten.
+
+### Why
+
+The column is prose written by a person for a person. "8–10 representative
+problems" and "45–60 min build" contain a real target. "Whiteboard + edge
+cases" and "Give pros/cons + alternative" do not, and no amount of pattern
+matching changes that.
+
+A target invented from "Choose storage for scenarios" becomes a number the plan
+measures progress against, and every downstream reading of it is wrong while
+looking exactly like a number somebody set. An obvious gap gets fixed. A
+confident wrong answer does not.
+
+Text that reads as two kinds at once is flagged rather than resolved by
+precedence: the person who wrote the cell is the one who knows which was meant.
+
+### Consequences
+
+- A third of the sheet arrives needing a few minutes of manual review. That is
+  the design working, and the alternative was 21 invented targets.
+- A hand-corrected target sets `correctedByHand`, and the next import leaves it
+  alone. Re-applying the same wrong parse would make correcting it pointless.
+- A test asserts the flag count over all 60 real rows, so a future
+  "improvement" to the parser cannot quietly start guessing.
+
+## 021 — A playlist has no completion figure
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`Resource` carries name, type, use, link and the workbook's "how to use", and
+nothing else. No progress, no percentage, no remaining count, no watched
+timestamp. Progress belongs to a `CurriculumTopic`. A source-scanning test in
+`src/lib/curriculum/playlist-rule.test.ts` fails on any identifier naming a
+pool and a score together, and on any division by the size of a pool.
+
+### Why
+
+The workbook says it twice, unprompted. The curriculum sheet's own second line
+reads "Playlist links are resource pools, not courses to finish end-to-end",
+and the resource sheet repeats it per row: "Daily; don't finish as a course",
+"Pick relevant videos only", "Pick weak topics only".
+
+A percentage over a pool turns "watch the two videos on the thing you are weak
+at" into "get through 214 videos", and then rewards the second. That is the
+substitution of engagement with the tool for execution of the work — the same
+failure the anti-feature list exists to prevent, arriving by a different door
+and looking like a useful feature on the way in.
+
+### Consequences
+
+- The resource list renders instructions, not progress bars.
+- Adding a status field to the Resource model fails a test that names the exact
+  field list, which is where the rule would be broken first.
+
+## 022 — The plan holds and shows the gap
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+Drift is the proportion of the current phase's P0 topics done against the
+elapsed proportion of its dates, computed on read by a pure function in
+`src/lib/behavior/drift.ts` with a ±10% tolerance band. Nothing re-flows the
+plan. Phase dates move only through `replanPhase()`, which requires a reason,
+shifts every later phase by the same amount, and appends `PLAN_REPLANNED`.
+`originalStartDate` and `originalEndDate` are immutable.
+
+### Why
+
+Silent re-flowing is the study-plan version of silently moving a deadline,
+which is the single behaviour this product exists to prevent. It lets a
+five-month plan quietly become an eight-month one with no moment where anybody
+noticed, and it destroys the only thing that makes "behind" mean anything — the
+schedule to compare against.
+
+Measured over P0 alone because that is the workbook's own "must master" band.
+Counting P2 Supporting rows would let a Docker video paper over an unfinished
+event loop; counting everything would make the plan look worse than it is for
+someone who correctly skipped the optional material. `needs-revision` does not
+count as done: it is the status meaning "finished badly", and counting it would
+make the number agree with the most optimistic reading of the user's own work.
+
+A phase whose focus text matches nothing itemised — "Applications +
+interviews" — reports that there is nothing to measure rather than measuring
+itself against the whole curriculum.
+
+### Consequences
+
+- Being behind is a number on a screen and nothing else happens. That is the
+  point.
+- Re-planning shifts the tail rather than compressing it, so the plan cannot
+  absorb a delay while appearing not to.
+- A re-planned phase is excluded from the import's date overwrite, so
+  re-importing cannot silently undo a decision that has a reason recorded
+  against it.
+
+## 023 — The evening is not a fourth study block
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+The generator never schedules new material into the evening, and when every
+morning block has closed it offers nothing at all — the workbook's "Workout +
+Rest, Priority" row is shown in its place. When a block did not close, the
+evening points at that existing commitment rather than creating a second one.
+
+### Why
+
+Both evening rows are in the sheet and both are prohibitions: "Only finish an
+incomplete morning task or revise a weak topic", and "Protect sleep and
+consistency; don't turn every free hour into study".
+
+The second is the one a well-meaning generator breaks. A day where all three
+blocks closed is exactly the day it is tempting to offer a bonus, and that is
+precisely the day the sheet says to stop. A plan that costs its user their
+sleep is one they abandon in three weeks, which fails the feature test harder
+than any missed evening.
+
+Pointing at the existing commitment rather than creating an evening one keeps
+the record honest: the unfinished morning work already has a deadline and a
+miss, and a second row for the same work would double-count it everywhere.
+
+### Consequences
+
+- `eveningPlan()` is pure and returns options; it creates nothing.
+- "Every morning block closed" and "no morning blocks exist" are different
+  answers. A "well done, go and rest" on a day nothing was planned would be a
+  lie.
+
+## 024 — Study blocks are ordinary Series
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+The three daily study windows are `Series` documents carrying a `blockId`.
+They materialise through the existing `materialiseRange`, produce ordinary
+Commitment occurrences, and get the same events and notifications as anything
+else. `materialiseRange` resolves the day's topic per occurrence and names it
+in the title. There is no second scheduler.
+
+### Why
+
+Everything about idempotency under concurrency, lazy materialisation, the
+lookahead, occurrence history, postponement and reckoning already exists and is
+tested. A parallel mechanism would have to re-earn all of it, and the two would
+diverge.
+
+The topic is resolved per occurrence rather than once per pass because the
+answer depends on the date: the weekly rhythm makes Monday machine coding and
+Thursday testing, and a fortnight materialised with today's answer would name
+the same topic fourteen times.
+
+The estimate is the block's length, not the topic's parsed duration. "5-min
+verbal framework" is the size of the output, not the time committed, and a
+five-minute estimate on a half-hour block would make the morning look
+twenty-five minutes cheaper than it is.
+
+### Consequences
+
+- Creating a fortnight of three daily blocks is roughly 45 occurrences, each
+  with two events and a queue row. Against Atlas that measured 34 seconds, and
+  a Vercel Hobby function has ten — so the import warms the lookahead itself.
+  The daily incremental cost afterwards is three occurrences.
+- A suggestion materialised early can go stale. `getStudyToday` re-resolves one
+  whose topic has since been marked done, but never one the user chose: a
+  default the app quietly reverts is a lock that pretends otherwise.
+- With no curriculum imported, a block series behaves as an ordinary daily
+  series. Every installation starts there.
