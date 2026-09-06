@@ -34,8 +34,33 @@ const envSchema = z.object({
    */
   AUTH_URL: z.url('must be an absolute URL').optional(),
 
-  /** Shared secret Vercel Cron presents on scheduled invocations. */
+  /**
+   * Shared secret for scheduled invocations.
+   *
+   * Presented by both the Cloudflare per-minute tick and the Vercel daily
+   * backstop, as a bearer token on POST /api/notifications/dispatch.
+   */
   CRON_SECRET: z.string().min(16, 'must be at least 16 characters'),
+
+  /**
+   * VAPID keypair for web push.
+   *
+   * Optional: the app runs without push, it simply cannot deliver it. Making
+   * them required would mean a deploy that has not set them up yet fails to
+   * boot over a feature it is not using.
+   *
+   * The PRIVATE key must never reach the client. It has no NEXT_PUBLIC_ prefix
+   * precisely so Next cannot inline it into a bundle, and this module is
+   * server-only.
+   */
+  VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+  /**
+   * The PUBLIC key. NEXT_PUBLIC_ because the browser needs it to subscribe --
+   * it is a public key and is meant to be shipped.
+   */
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+  /** Contact address in the VAPID JWT, per the spec. */
+  VAPID_SUBJECT: z.string().optional(),
 
   /** IANA zone. Storage is UTC everywhere; this is a rendering concern only. */
   APP_TIMEZONE: z

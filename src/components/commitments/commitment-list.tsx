@@ -3,7 +3,9 @@
 import { useCallback, useState } from 'react';
 
 import type { CommitmentView } from '@/lib/commitments/service';
+import { DispatchHealthBanner } from '@/components/pwa/dispatch-health-banner';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
+import { PushReconciler } from '@/components/pwa/push-reconciler';
 import { NotificationPermission } from '@/components/pwa/notification-permission';
 import { StalenessBanner } from '@/components/pwa/staleness-banner';
 import { CommitmentRow } from './commitment-row';
@@ -20,10 +22,16 @@ export function CommitmentList({
   initial,
   timeZone,
   today,
+  vapidPublicKey,
+  lastDispatchAt,
+  nowIso,
 }: {
   initial: { commitments: CommitmentView[]; overdue: CommitmentView[] };
   timeZone: string;
   today: string;
+  vapidPublicKey?: string;
+  lastDispatchAt?: string | null;
+  nowIso?: string;
 }): React.JSX.Element {
   const [data, setData] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,10 +77,18 @@ export function CommitmentList({
     <div className="flex flex-col gap-xl">
       <StalenessBanner cachedAt={cachedAt} onRetry={() => void reload()} />
 
+      {/* Silent scheduler failure is the one thing push cannot report itself. */}
+      {lastDispatchAt !== undefined && nowIso ? (
+        <DispatchHealthBanner lastDispatchAt={lastDispatchAt} now={nowIso} />
+      ) : null}
+
+      {/* Reconciles this browser's subscription against the server. */}
+      <PushReconciler publicKey={vapidPublicKey} />
+
       <CreateCommitmentForm timeZone={timeZone} onCreated={() => void reload()} />
 
       {/* Only once there is something worth being interrupted about. */}
-      <NotificationPermission commitmentCount={totalCommitments} />
+      <NotificationPermission commitmentCount={totalCommitments} vapidPublicKey={vapidPublicKey} />
       <InstallPrompt />
 
       {data.overdue.length > 0 ? (

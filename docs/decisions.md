@@ -372,3 +372,90 @@ thought to add.
   in explicitly.
 - The purge itself is scoped to `synthetic: true` rather than dropping
   collections, so it cannot take real history even when it does run.
+
+## 011 — Delivery is a queue scan driven by an external tick
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`POST /api/notifications/dispatch` scans the queue for anything due and
+pending, and sends it. A Cloudflare Worker calls it every minute; Vercel Cron
+calls the same endpoint once a day as a backstop. The Worker contains no logic.
+
+Each row is claimed with a conditional update on `status: 'pending'` before any
+send.
+
+### Why
+
+Vercel Hobby allows one cron invocation per day, which is not a notification
+scheduler. Something external has to drive the minute hand.
+
+Making that thing dumb is the point. A scheduler is a commodity, and the moment
+it holds logic it stops being swappable — so the Worker only makes one
+authenticated request, and cron-job.org or a line in crontab can replace it
+without touching the app.
+
+Scanning rather than firing is what makes the arrangement safe. A trigger that
+fires _at_ a moment is lost if the moment is missed, and Cloudflare cron does
+not retry a failed tick. A scan asks what is outstanding, so a missed tick
+self-heals on the next one and the daily Vercel backstop degrades the system to
+daily delivery rather than stopping it.
+
+Claiming before sending, rather than sending then marking, is the other half.
+Two ticks overlap whenever one runs slow. The conditional update means exactly
+one wins. The trade is that a crash between claim and send loses that
+notification instead of repeating it — correct here, because a missed reminder
+is a gap and a duplicated one is noise, and noise is what teaches someone to
+ignore the app entirely.
+
+### Consequences
+
+- Delivery is at-most-once, deliberately, not at-least-once.
+- Calling the endpoint more often than necessary is harmless.
+- Silent failure is possible: Cloudflare raises no alert. `lastDispatchAt` is
+  recorded on every dispatch, exposed at `/api/health/detail`, and surfaced as
+  a dashboard warning past 15 minutes. Without that, push can stop for a week
+  before anyone notices.
+
+## 012 — Dead push subscriptions are deleted, not retried
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+A 404 or 410 from a push service deletes the subscription immediately. Any
+other error increments `failureCount`; five consecutive failures delete it, and
+any success resets the count to zero.
+
+On every app load, the browser's current subscription is compared against what
+the server holds, and a mismatch re-registers.
+
+### Why
+
+404 and 410 are the push service stating that the endpoint is permanently gone.
+Retrying is guaranteed to fail. Without deletion the row lives forever and
+generates an error on every tick, until a dead device is the only thing in the
+logs and real failures are invisible among them.
+
+Other errors are ambiguous — a timeout, a 500, a network blip — where one
+failure proves nothing and deleting would punish a device that was briefly
+offline. Requiring five _consecutive_ failures distinguishes "unreachable right
+now" from "nobody is listening", and resetting on success is what makes
+"consecutive" mean anything.
+
+The reconciliation exists because browsers rotate or drop subscriptions with no
+notification to anyone. The server carries on sending to the old endpoint, the
+push service accepts the request, and nothing arrives. There is no error on
+either side. Comparing on load is the only thing that detects it, and it is the
+single most common reason web push appears to stop working for no reason.
+
+### Consequences
+
+- The subscription list is self-cleaning; no manual pruning.
+- A user with several devices receives on all of them, because guessing which
+  one they are at means the notification does not arrive.
+- Endpoints are returned to the client as a suffix only. The full endpoint is a
+  capability URL — anyone holding it can push to that device.

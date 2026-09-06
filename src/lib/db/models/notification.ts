@@ -44,6 +44,15 @@ const notificationSchema = new mongoose.Schema(
     createdAt: { type: Date, required: true, default: () => new Date() },
     /** Why it was skipped, so the queue explains itself rather than just going quiet. */
     skipReason: { type: String, default: null },
+
+    /**
+     * Per-subscription results of the push send.
+     *
+     * Kept so a debugging session can distinguish "nothing was sent" from
+     * "sent, but every subscription was dead" -- which look identical from the
+     * outside and have completely different causes.
+     */
+    deliveryOutcomes: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { collection: 'notifications', versionKey: false },
 );

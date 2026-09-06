@@ -1,5 +1,10 @@
 import { auth } from '@/lib/auth';
+import { NotificationModel } from '@/lib/db/models/notification';
+import { PushSubscriptionModel } from '@/lib/db/models/push-subscription';
 import { UserModel } from '@/lib/db/models/user';
+import { isPushConfigured } from '@/lib/notifications/push';
+import { getSettings } from '@/lib/notifications/settings';
+import { DISPATCH_STALE_MINUTES } from '@/lib/schemas/push';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { buildInfo, EnvironmentError, getEnv } from '@/lib/env';
 import { formatWallClock, utcOffset } from '@/lib/time';
@@ -42,9 +47,39 @@ export async function GET(): Promise<Response> {
 
   let userCount: number | null = null;
   let databaseError: string | null = null;
+  let dispatch: {
+    lastDispatchAt: string | null;
+    minutesSince: number | null;
+    stale: boolean;
+    pushConfigured: boolean;
+    subscriptions: number;
+    pendingPush: number;
+  } | null = null;
+
   try {
     await connectToDatabase();
     userCount = await UserModel.countDocuments();
+
+    const settings = await getSettings();
+    const minutesSince = settings.lastDispatchAt
+      ? Math.floor((now.getTime() - settings.lastDispatchAt.getTime()) / 60_000)
+      : null;
+
+    dispatch = {
+      lastDispatchAt: settings.lastDispatchAt?.toISOString() ?? null,
+      minutesSince,
+      // The external tick fails silently -- Cloudflare cron does not retry and
+      // raises no alert -- so this is the only place a stopped scheduler is
+      // visible without noticing that notifications stopped arriving.
+      stale: minutesSince !== null && minutesSince > DISPATCH_STALE_MINUTES,
+      pushConfigured: isPushConfigured(),
+      subscriptions: await PushSubscriptionModel.countDocuments(),
+      pendingPush: await NotificationModel.countDocuments({
+        channel: 'web-push',
+        status: 'pending',
+        scheduledFor: { $lte: now },
+      }),
+    };
   } catch (error) {
     databaseError = error instanceof Error ? error.message : String(error);
   }
@@ -67,6 +102,7 @@ export async function GET(): Promise<Response> {
         expiresIn: expiresAt ? formatDuration(expiresAt.getTime() - now.getTime()) : null,
       },
       users: { count: userCount },
+      dispatch,
       database: databaseError ? { status: 'error', message: databaseError } : { status: 'ok' },
       environment: buildInfo.environment,
       commit: buildInfo.commitSha,

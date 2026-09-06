@@ -30,7 +30,7 @@ export default async function LandingPage({
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-md py-xl">
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm min-w-150">
         <header className="mb-xl">
           <h1 className="text-2xl font-semibold tracking-tight">Pact</h1>
           <p className="text-text/60 mt-2xs text-sm">Execution, not organisation</p>

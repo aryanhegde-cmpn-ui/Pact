@@ -63,6 +63,13 @@ eventSchema.index({ synthetic: 1 }, { sparse: true });
  * invocations observing the SAME deadline all produce the same `ts`, so
  * exactly one wins and `appendEvent` treats the duplicate-key error as
  * success. Checking first and writing second would race.
+ *
+ * THAT PROPERTY IS NOT LOCAL TO THIS FILE. It holds only because
+ * `recordObservedMisses` timestamps the event at the deadline rather than at
+ * emission. If that ever changes, every observer produces a distinct `ts`,
+ * this index stops deduplicating anything, and one missed deadline is written
+ * once per read -- with no error, anywhere. The invariant is pinned by a test:
+ * "miss events are timestamped at the deadline".
  */
 eventSchema.index(
   { entityId: 1, type: 1, ts: 1 },

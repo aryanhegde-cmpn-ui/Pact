@@ -1,10 +1,15 @@
 name: E2E Tests
 
+# Parked. There are no E2E specs yet -- `e2e/` holds only its README -- so on
+# every pull request this workflow spent several minutes installing Chromium in
+# order to report "no tests found" and fail. Manual dispatch keeps the job
+# runnable and reviewable while it has nothing to run.
+#
+# Restore the `pull_request` trigger together with the first spec. `e2e/README.md`
+# lists what else that needs: a `webServer` block, and a decision about whether
+# CI gets a MongoDB service.
 on:
-  pull_request:
-    branches:
-      - dev
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read

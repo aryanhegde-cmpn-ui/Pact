@@ -8,6 +8,9 @@ export interface ResolvedSettings {
   quietHoursEnd: string;
   dailyReviewAt: string;
   defaultLeadMinutes: number;
+  disabledTypes: string[];
+  /** Null until the first dispatch has run. */
+  lastDispatchAt: Date | null;
 }
 
 /**
@@ -20,7 +23,9 @@ export async function getSettings(): Promise<ResolvedSettings> {
   const doc = await SettingsModel.findOneAndUpdate(
     { key: 'singleton' },
     { $setOnInsert: { ...DEFAULT_SETTINGS, updatedAt: new Date() } },
-    { upsert: true, new: true },
+    // The post-insert document, so a first read returns the defaults that were
+    // just written rather than null.
+    { upsert: true, returnDocument: 'after' },
   ).lean();
 
   return {
@@ -28,6 +33,8 @@ export async function getSettings(): Promise<ResolvedSettings> {
     quietHoursEnd: doc?.quietHoursEnd ?? DEFAULT_SETTINGS.quietHoursEnd,
     dailyReviewAt: doc?.dailyReviewAt ?? DEFAULT_SETTINGS.dailyReviewAt,
     defaultLeadMinutes: doc?.defaultLeadMinutes ?? DEFAULT_SETTINGS.defaultLeadMinutes,
+    disabledTypes: doc?.disabledTypes ?? [],
+    lastDispatchAt: doc?.lastDispatchAt ?? null,
   };
 }
 

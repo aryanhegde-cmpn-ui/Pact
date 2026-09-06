@@ -255,3 +255,54 @@ describe('a deadline that moves can be missed more than once', () => {
     expect(store.rows.filter((row) => row.type === 'DEADLINE_MISSED')).toHaveLength(3);
   });
 });
+
+describe('miss events are timestamped at the deadline', () => {
+  /**
+   * The invariant the uniqueness index rests on.
+   *
+   * Uniqueness is (entityId, type, ts). Because `ts` is the deadline,
+   * concurrent observers of one miss produce identical keys and collapse to a
+   * single row. Timestamp at emission instead and every observer produces a
+   * distinct key: the index stops deduplicating, and a single missed deadline
+   * is written once per read with no error anywhere.
+   *
+   * This is asserted directly so that change fails a test rather than quietly
+   * multiplying rows in production.
+   */
+  it('uses dueAt as ts, not the observation time', async () => {
+    const dueAt = new Date('2026-09-05T12:00:00.000Z');
+    const noticedAt = new Date('2026-09-05T18:47:13.000Z');
+
+    await recordObservedMisses([{ _id: 'c1', dueAt, status: 'pending' }], noticedAt);
+
+    const [event] = store.rows;
+    expect(event?.ts).toEqual(dueAt);
+    expect(event?.ts).not.toEqual(noticedAt);
+  });
+
+  it('produces the same ts for the same deadline across different observations', async () => {
+    const dueAt = new Date('2026-09-05T12:00:00.000Z');
+    const commitment = [{ _id: 'c1', dueAt, status: 'pending' as const }];
+
+    // Three reads, hours apart. Deduplication depends on all three producing
+    // the same key.
+    await recordObservedMisses(commitment, new Date('2026-09-05T13:00:00Z'));
+    await recordObservedMisses(commitment, new Date('2026-09-06T09:00:00Z'));
+    await recordObservedMisses(commitment, new Date('2026-09-09T22:30:00Z'));
+
+    expect(store.rows).toHaveLength(1);
+    expect(store.rows[0]?.ts).toEqual(dueAt);
+  });
+
+  it('records the observation time in the payload, where it is harmless', async () => {
+    const dueAt = new Date('2026-09-05T12:00:00.000Z');
+    const noticedAt = new Date('2026-09-05T18:47:13.000Z');
+
+    await recordObservedMisses([{ _id: 'c1', dueAt, status: 'pending' }], noticedAt);
+
+    // Not lost -- just kept out of the key, where it would break uniqueness.
+    expect((store.rows[0]?.payload as { noticedAt: string }).noticedAt).toBe(
+      noticedAt.toISOString(),
+    );
+  });
+});

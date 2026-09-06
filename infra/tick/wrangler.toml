@@ -1,0 +1,16 @@
+name = "pact-tick"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# Every minute. Cloudflare's smallest cron interval, and it is enough: a
+# notification arriving up to 60 seconds late is not a problem, and dispatch is
+# a queue scan so a missed tick self-heals on the next one.
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# Set to the deployed Pact origin. No trailing slash.
+PACT_URL = "https://pact.vercel.app"
+
+# CRON_SECRET is NOT here. It is a secret:
+#   wrangler secret put CRON_SECRET

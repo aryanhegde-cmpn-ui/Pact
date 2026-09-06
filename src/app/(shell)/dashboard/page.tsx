@@ -1,6 +1,7 @@
 import { CommitmentList } from '@/components/commitments/commitment-list';
 import { listByDateRange, listOverdue } from '@/lib/commitments/service';
 import { getEnv } from '@/lib/env';
+import { getSettings } from '@/lib/notifications/settings';
 import { toDateKey } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -21,9 +22,10 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
 
   // Reading is what materialises series occurrences and records observed
   // misses -- there is no scheduler doing it beforehand.
-  const [commitments, overdue] = await Promise.all([
+  const [commitments, overdue, settings] = await Promise.all([
     listByDateRange(today, today, timeZone, now),
     listOverdue(now),
+    getSettings(),
   ]);
 
   const inRange = new Set(commitments.map((c) => c.id));
@@ -46,6 +48,11 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
         initial={{ commitments, overdue: overdue.filter((c) => !inRange.has(c.id)) }}
         timeZone={timeZone}
         today={today}
+        // Public by design -- the browser needs it to subscribe. The private
+        // half never leaves the server.
+        vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+        lastDispatchAt={settings.lastDispatchAt?.toISOString() ?? null}
+        nowIso={now.toISOString()}
       />
     </div>
   );

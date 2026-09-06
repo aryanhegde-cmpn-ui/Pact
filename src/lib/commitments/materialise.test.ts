@@ -222,9 +222,11 @@ describe('series occurrences enqueue as they materialise', () => {
   it('queues notifications for every occurrence it creates', async () => {
     await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
 
-    // Three per occurrence: approaching, now, accountability check.
+    // Three per occurrence, on each of the two channels.
     expect(store.commitments).toHaveLength(15);
-    expect(store.notifications).toHaveLength(15 * 3);
+    expect(store.notifications).toHaveLength(15 * 3 * 2);
+    expect(store.notifications.filter((n) => n.channel === 'in-app')).toHaveLength(45);
+    expect(store.notifications.filter((n) => n.channel === 'web-push')).toHaveLength(45);
   });
 
   it('schedules them against each occurrence own deadline', async () => {
@@ -232,7 +234,11 @@ describe('series occurrences enqueue as they materialise', () => {
 
     const first = store.commitments.find((c) => c.occurrenceDate === '2026-09-05');
     const due = (first?.dueAt as Date).getTime();
-    const forFirst = store.notifications.filter((n) => n.commitmentId === first?._id);
+    // One channel only: both are enqueued, and the schedule is the same on
+    // each, so mixing them would just double every entry.
+    const forFirst = store.notifications.filter(
+      (n) => n.commitmentId === first?._id && n.channel === 'in-app',
+    );
 
     const times = forFirst
       .map((n) => (n.scheduledFor as Date).getTime() - due)

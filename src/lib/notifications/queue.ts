@@ -20,12 +20,16 @@ function isDuplicateKeyError(error: unknown): boolean {
 /**
  * Channels a notification is enqueued for.
  *
- * Only `in-app` is delivered in this change. When web push lands it is added
- * here and every enqueue site starts producing both rows -- the wiring, the
- * cancellation and the delivery rules already work per-channel, so nothing
- * else has to change.
+ * One row per channel per notification. Both are enqueued unconditionally;
+ * whether a device actually receives the push depends on there being a
+ * subscription, which is a delivery concern rather than a scheduling one.
+ *
+ * The channels are delivered by different things: `in-app` by whichever
+ * request reads the inbox, `web-push` by the external per-minute tick calling
+ * the dispatch endpoint. Each delivery path filters on `channel`, so neither
+ * can consume the other's rows.
  */
-export const ACTIVE_CHANNELS: readonly NotificationChannel[] = ['in-app'];
+export const ACTIVE_CHANNELS: readonly NotificationChannel[] = ['in-app', 'web-push'];
 
 export interface CommitmentForQueue {
   id: string;

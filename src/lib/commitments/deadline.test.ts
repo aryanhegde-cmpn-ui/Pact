@@ -224,8 +224,12 @@ describe('changeDeadline', () => {
 });
 
 describe('the notification queue follows the deadline', () => {
-  const pending = () => store.notifications.filter((n) => n.status === 'pending');
-  const cancelled = () => store.notifications.filter((n) => n.status === 'cancelled');
+  // Both channels are enqueued, so counts are asserted per channel: a bug that
+  // dropped one channel would otherwise hide behind the other's rows.
+  const pending = (channel = 'in-app') =>
+    store.notifications.filter((n) => n.status === 'pending' && n.channel === channel);
+  const cancelled = (channel = 'in-app') =>
+    store.notifications.filter((n) => n.status === 'cancelled' && n.channel === channel);
 
   async function queueInitial(): Promise<void> {
     const { enqueueForCommitment } = await import('@/lib/notifications/queue');
@@ -243,6 +247,8 @@ describe('the notification queue follows the deadline', () => {
         quietHoursEnd: '07:00',
         dailyReviewAt: '07:30',
         defaultLeadMinutes: 30,
+        disabledTypes: [],
+        lastDispatchAt: null,
       },
       'Asia/Kolkata',
       NOW,
@@ -256,14 +262,16 @@ describe('the notification queue follows the deadline', () => {
     const later = new Date('2026-09-07T12:00:00.000Z');
     await changeDeadline('c1', { newDueAt: later, reason: 'Blocked' }, NOW);
 
-    // The three queued against the OLD deadline are cancelled...
-    expect(cancelled()).toHaveLength(3);
-    for (const row of cancelled()) {
-      expect((row.scheduledFor as Date).getTime()).toBeLessThan(later.getTime() - 3_600_000);
-    }
+    // The three queued against the OLD deadline are cancelled, on both channels...
+    for (const channel of ['in-app', 'web-push']) {
+      expect(cancelled(channel)).toHaveLength(3);
+      for (const row of cancelled(channel)) {
+        expect((row.scheduledFor as Date).getTime()).toBeLessThan(later.getTime() - 3_600_000);
+      }
 
-    // ...and three fresh ones exist against the new deadline.
-    expect(pending()).toHaveLength(3);
+      // ...and three fresh ones exist against the new deadline.
+      expect(pending(channel)).toHaveLength(3);
+    }
   });
 
   it('points DEADLINE_NOW at exactly the new deadline', async () => {
@@ -319,6 +327,8 @@ describe('the notification queue follows the deadline', () => {
         quietHoursEnd: '07:00',
         dailyReviewAt: '07:30',
         defaultLeadMinutes: 30,
+        disabledTypes: [],
+        lastDispatchAt: null,
       },
       'Asia/Kolkata',
       NOW,
@@ -327,8 +337,10 @@ describe('the notification queue follows the deadline', () => {
     // Cancelling leaves the rows in place and the unique key ignores status, so
     // the re-enqueue collides with what it just cancelled. Counting that as
     // "already queued" left the commitment with nothing pending at all.
-    expect(result.revived).toBe(3);
-    expect(pending()).toHaveLength(3);
+    // Three per channel.
+    expect(result.revived).toBe(6);
+    expect(pending('in-app')).toHaveLength(3);
+    expect(pending('web-push')).toHaveLength(3);
   });
 
   it('still has live notifications after a deadline moves and moves back', async () => {
@@ -340,7 +352,8 @@ describe('the notification queue follows the deadline', () => {
 
     // The realistic route into the bug: every row for the original deadline had
     // been cancelled, so recreating them collided and produced silence.
-    expect(pending()).toHaveLength(3);
+    expect(pending('in-app')).toHaveLength(3);
+    expect(pending('web-push')).toHaveLength(3);
     const deadlineNow = pending().find((n) => n.type === 'DEADLINE_NOW');
     expect((deadlineNow?.scheduledFor as Date).toISOString()).toBe(ORIGINAL.toISOString());
   });
@@ -366,6 +379,8 @@ describe('the notification queue follows the deadline', () => {
         quietHoursEnd: '07:00',
         dailyReviewAt: '07:30',
         defaultLeadMinutes: 30,
+        disabledTypes: [],
+        lastDispatchAt: null,
       },
       'Asia/Kolkata',
       NOW,

@@ -22,6 +22,21 @@ const settingsSchema = new mongoose.Schema(
       required: true,
       default: DEFAULT_SETTINGS.defaultLeadMinutes,
     },
+    /**
+     * Per-type push toggles. Absent means enabled -- a type added later should
+     * work without a settings migration.
+     */
+    disabledTypes: { type: [String], default: [] },
+
+    /**
+     * When the dispatch endpoint last completed.
+     *
+     * Surfaced in the UI because the external tick fails silently: Cloudflare
+     * cron does not retry and raises no alert, so a stopped tick is
+     * indistinguishable from having nothing due.
+     */
+    lastDispatchAt: { type: Date, default: null },
+
     updatedAt: { type: Date, required: true, default: () => new Date() },
   },
   { collection: 'settings', versionKey: false },

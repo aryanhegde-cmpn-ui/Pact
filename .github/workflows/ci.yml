@@ -1,10 +1,9 @@
 name: CI
 
 on:
+  # Every pull request, whatever it targets. A feature branch opened against
+  # another feature branch still gets checked.
   pull_request:
-    branches:
-      - dev
-      - main
 
   push:
     branches:

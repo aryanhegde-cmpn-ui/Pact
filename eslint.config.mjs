@@ -6,7 +6,9 @@ import prettier from 'eslint-config-prettier';
 /** @type {import('eslint').Linter.Config[]} */
 const eslintConfig = [
   {
-    ignores: ['.next/**', 'node_modules/**', 'coverage/**', 'next-env.d.ts'],
+    // infra/tick is a separate Cloudflare Worker package with its own
+    // toolchain and global types.
+    ignores: ['.next/**', 'node_modules/**', 'coverage/**', 'next-env.d.ts', 'infra/**'],
   },
   ...next,
   ...coreWebVitals,

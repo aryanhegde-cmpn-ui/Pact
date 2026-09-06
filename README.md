@@ -40,15 +40,15 @@ Deployed on Vercel Hobby, which means no background workers and one daily cron
 
 ## Status
 
-**Scaffold, auth, the core data model, an installable PWA, and the notification
-queue with in-app delivery.** Web push is next; the study planner and behaviour
-engine come after.
+**Scaffold, auth, the core data model, an installable PWA, the notification
+queue, and web push.** The study planner and the behaviour engine come next.
 
 Working: Commitments whose deadline can only move through a logged, reasoned
 change; an append-only event log; miss detection derived on read; Series with
 lazily materialised occurrences; a notification queue wired to the whole
-commitment lifecycle with quiet hours and a staleness cap; an in-app inbox; and
-a home-screen-installable app with a real offline state.
+commitment lifecycle; in-app **and web-push** delivery over that one queue,
+driven by an external per-minute tick; and a settings surface for types, quiet
+hours and devices.
 
 ## Local setup
 
@@ -76,6 +76,9 @@ requirement.
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MONGODB_URI`                            | Atlas → your cluster → Connect → Drivers. The M0 free tier is enough.                                                                               |
 | `AUTH_SECRET`                            | `openssl rand -base64 32`. Signs the session JWT; rotating it invalidates every session.                                                            |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`           | `npm run vapid:generate`. Public by design — the browser needs it to subscribe.                                                                     |
+| `VAPID_PRIVATE_KEY`                      | From the same command. **Secret**; never reaches the client.                                                                                        |
+| `VAPID_SUBJECT`                          | `mailto:you@example.com`. Contact address in the VAPID JWT.                                                                                         |
 | `CRON_SECRET`                            | `openssl rand -hex 32`. Vercel Cron presents this on scheduled invocations.                                                                         |
 | `APP_TIMEZONE`                           | Optional. Defaults to `Asia/Kolkata`. Any IANA zone.                                                                                                |
 | `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` | Optional, read only by `npm run seed:user`. Do **not** set these on a deployment — a live environment has no business holding a plaintext password. |
@@ -138,22 +141,24 @@ credentials.
 
 ## Scripts
 
-| Command                   | What it does                                                                |
-| ------------------------- | --------------------------------------------------------------------------- |
-| `npm run dev`             | Development server on :3000, opens your browser once it is ready            |
-| `npm run dev:no-open`     | Same, without launching a browser                                           |
-| `npm run build`           | Production build                                                            |
-| `npm start`               | Serve the production build                                                  |
-| `npm test`                | Run the Vitest suite once                                                   |
-| `npm run test:watch`      | Vitest in watch mode                                                        |
-| `npm run typecheck`       | `tsc --noEmit`                                                              |
-| `npm run lint`            | ESLint                                                                      |
-| `npm run format`          | Prettier, writing in place                                                  |
-| `npm run seed:user`       | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
-| `npm run change:password` | Change a password interactively (`-- --email you@example.com`)              |
-| `npm run seed:history`    | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)     |
-| `npm run db:indexes`      | Sync indexes to the models. Run after any index change                      |
-| `npm run icons`           | Regenerate the PWA icon set from the SVG wordmark                           |
+| Command                         | What it does                                                                |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `npm run dev`                   | Development server on :3000, opens your browser once it is ready            |
+| `npm run dev:no-open`           | Same, without launching a browser                                           |
+| `npm run build`                 | Production build                                                            |
+| `npm start`                     | Serve the production build                                                  |
+| `npm test`                      | Run the Vitest suite once                                                   |
+| `npm run test:watch`            | Vitest in watch mode                                                        |
+| `npm run typecheck`             | `tsc --noEmit`                                                              |
+| `npm run lint`                  | ESLint                                                                      |
+| `npm run format`                | Prettier, writing in place                                                  |
+| `npm run seed:user`             | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
+| `npm run change:password`       | Change a password interactively (`-- --email you@example.com`)              |
+| `npm run seed:history`          | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)     |
+| `npm run db:indexes`            | Sync indexes to the models. Run after any index change                      |
+| `npm run db:migrate:miss-index` | Replace the DEADLINE_MISSED index. Idempotent; run once on each deploy      |
+| `npm run vapid:generate`        | Generate the web-push VAPID key pair                                        |
+| `npm run icons`                 | Regenerate the PWA icon set from the SVG wordmark                           |
 
 No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
@@ -206,6 +211,31 @@ preference:
 - **Only `changeDeadline()` may write `dueAt`**, and it requires a reason.
 - **The event log has no update or delete path anywhere**, including through
   the raw driver.
+
+## Web push
+
+Notifications arrive with the app closed. Three pieces:
+
+1. **VAPID keys.** Run `npm run vapid:generate` once, and set the three
+   variables it prints in `.env.local` and in Vercel. Rotating them invalidates
+   every existing subscription and devices re-subscribe silently rather than
+   reporting an error, so do it once.
+2. **The tick.** Deploy the Cloudflare Worker in
+   [`infra/tick`](infra/tick/README.md), which POSTs to
+   `/api/notifications/dispatch` every minute with `CRON_SECRET`. That README
+   also covers replacing it with cron-job.org or plain cron.
+3. **Subscribe.** Enable notifications on the dashboard. On iOS that only works
+   from the **installed** app — Safari does not expose the API to a website.
+
+Vercel Cron hits the same endpoint daily as a backstop, so a Cloudflare outage
+degrades delivery to daily rather than stopping it. Dispatch is a queue scan
+rather than a moment-in-time trigger, which is what makes running late safe.
+
+**If push seems broken**, Settings → Devices has a _Send test notification_
+button that distinguishes the failure modes — no VAPID keys, no subscriptions,
+or subscriptions the push service rejects. `GET /api/health/detail` reports
+`dispatch.lastDispatchAt`, `minutesSince` and `stale`, and the dashboard warns
+when the last dispatch is over 15 minutes old.
 
 ## Installing on a phone
 
