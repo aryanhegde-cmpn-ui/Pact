@@ -13,6 +13,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Node by default -- almost everything here is server code. The handful of
+    // component tests opt into a DOM per file with `@vitest-environment`.
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     /**

@@ -4,6 +4,9 @@ import { isMissed, minutesOverdue } from '@/lib/behavior/miss';
 import { materialiseRange } from '@/lib/commitments/materialise';
 import { recordObservedMisses } from '@/lib/commitments/miss-detection';
 import { appendEvent } from '@/lib/db/events';
+import { cancelPendingForCommitment, enqueueForCommitment } from '@/lib/notifications/queue';
+import { getSettings } from '@/lib/notifications/settings';
+import { getEnv } from '@/lib/env';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import {
@@ -113,6 +116,7 @@ export async function createCommitment(
     startedAt: null,
     completedAt: null,
     notes: data.notes ?? '',
+    leadMinutes: data.leadMinutes ?? null,
   });
 
   const entityId = String(doc._id);
@@ -141,6 +145,22 @@ export async function createCommitment(
     source: 'user',
     payload: { dueAt: data.dueAt.toISOString() },
   });
+
+  // A commitment with no notifications is just a list item.
+  await enqueueForCommitment(
+    {
+      id: entityId,
+      title: data.title,
+      outcome: data.outcome,
+      dueAt: data.dueAt,
+      estimateMinutes: data.estimateMinutes,
+      priority: data.priority,
+      leadMinutes: data.leadMinutes ?? null,
+    },
+    await getSettings(),
+    getEnv().APP_TIMEZONE,
+    now,
+  );
 
   return toView(doc.toObject(), now);
 }
@@ -303,6 +323,11 @@ export async function completeCommitment(
     },
   });
 
+  // Nothing further to ask about something that is finished. Leaving these
+  // queued produces an ACCOUNTABILITY_CHECK for work already done, which is
+  // exactly the kind of wrong that teaches someone to ignore the app.
+  await cancelPendingForCommitment(id);
+
   const updated = await CommitmentModel.findById(id).lean();
   return toView(updated!, now);
 }
@@ -333,6 +358,10 @@ export async function abandonCommitment(
     // is exactly the kind of fact this app exists to keep.
     payload: { reason, dueAt: existing.dueAt.toISOString() },
   });
+
+  // Abandoning is a decision, and the decision has been made. Continuing to
+  // ask about it would be nagging, not accountability.
+  await cancelPendingForCommitment(id);
 
   const updated = await CommitmentModel.findById(id).lean();
   return toView(updated!, now);

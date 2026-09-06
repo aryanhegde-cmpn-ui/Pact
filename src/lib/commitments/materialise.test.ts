@@ -10,6 +10,7 @@ const store = vi.hoisted(() => ({
   series: [] as Record<string, unknown>[],
   commitments: [] as Record<string, unknown>[],
   events: [] as Record<string, unknown>[],
+  notifications: [] as Record<string, unknown>[],
   createAttempts: 0,
 }));
 
@@ -45,6 +46,44 @@ vi.mock('@/lib/db/models/commitment', () => ({
       store.commitments.push(saved);
       return saved;
     },
+  },
+}));
+
+vi.mock('@/lib/db/models/settings', () => ({
+  SettingsModel: {
+    findOneAndUpdate: () => ({
+      lean: async () => ({
+        quietHoursStart: '00:00',
+        quietHoursEnd: '07:00',
+        dailyReviewAt: '07:30',
+        defaultLeadMinutes: 30,
+      }),
+    }),
+  },
+}));
+
+// The real queue module runs against this; whether materialisation enqueues is
+// part of what is being tested.
+vi.mock('@/lib/db/models/notification', () => ({
+  NotificationModel: {
+    create: async (doc: Record<string, unknown>) => {
+      const clash = store.notifications.some(
+        (row) =>
+          row.commitmentId === doc.commitmentId &&
+          row.type === doc.type &&
+          (row.scheduledFor as Date).getTime() === (doc.scheduledFor as Date).getTime() &&
+          row.channel === doc.channel,
+      );
+      if (clash) {
+        const error = new Error('E11000 duplicate key') as Error & { code: number };
+        error.code = 11000;
+        throw error;
+      }
+      store.notifications.push({ ...doc });
+      return doc;
+    },
+    updateOne: async () => ({ modifiedCount: 0 }),
+    updateMany: async () => ({ modifiedCount: 0 }),
   },
 }));
 
@@ -84,6 +123,7 @@ beforeEach(() => {
   store.series = [dailySeries()];
   store.commitments = [];
   store.events = [];
+  store.notifications = [];
   store.createAttempts = 0;
 });
 
@@ -175,5 +215,39 @@ describe('materialiseRange', () => {
 
     const earliest = store.commitments.map((c) => c.occurrenceDate as string).sort()[0];
     expect(earliest).toBe('2026-09-05');
+  });
+});
+
+describe('series occurrences enqueue as they materialise', () => {
+  it('queues notifications for every occurrence it creates', async () => {
+    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+
+    // Three per occurrence: approaching, now, accountability check.
+    expect(store.commitments).toHaveLength(15);
+    expect(store.notifications).toHaveLength(15 * 3);
+  });
+
+  it('schedules them against each occurrence own deadline', async () => {
+    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+
+    const first = store.commitments.find((c) => c.occurrenceDate === '2026-09-05');
+    const due = (first?.dueAt as Date).getTime();
+    const forFirst = store.notifications.filter((n) => n.commitmentId === first?._id);
+
+    const times = forFirst
+      .map((n) => (n.scheduledFor as Date).getTime() - due)
+      .sort((a, b) => a - b);
+    // -30 min, 0, +15 min.
+    expect(times).toEqual([-30 * 60_000, 0, 15 * 60_000]);
+  });
+
+  it('does not re-enqueue on a second materialisation pass', async () => {
+    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    const after = store.notifications.length;
+
+    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+
+    // Nothing new was created, so nothing new was queued.
+    expect(store.notifications).toHaveLength(after);
   });
 });

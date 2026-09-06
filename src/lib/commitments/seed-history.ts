@@ -32,6 +32,8 @@ export interface SeedPattern {
   meanPostponements: number;
   /** Chance an unfinished commitment is explicitly abandoned rather than left open. */
   abandonRate: number;
+  /** Of postponements, the share that happen only after the deadline has passed. */
+  postponeAfterMissRate: number;
   /** Hours of the local day this persona schedules work into. */
   hours: number[];
 }
@@ -47,6 +49,8 @@ export const PATTERNS: Record<Exclude<PatternName, 'mixed'>, SeedPattern> = {
     postponeRate: 0.72,
     meanPostponements: 2.4,
     abandonRate: 0.35,
+    // The signature: the deadline moves because it was already blown.
+    postponeAfterMissRate: 0.7,
     hours: [10, 11, 14, 16],
   },
 
@@ -60,6 +64,7 @@ export const PATTERNS: Record<Exclude<PatternName, 'mixed'>, SeedPattern> = {
     postponeRate: 0.3,
     meanPostponements: 1.3,
     abandonRate: 0.2,
+    postponeAfterMissRate: 0.45,
     hours: [21, 22, 23],
   },
 
@@ -70,6 +75,8 @@ export const PATTERNS: Record<Exclude<PatternName, 'mixed'>, SeedPattern> = {
     postponeRate: 0.14,
     meanPostponements: 1.1,
     abandonRate: 0.5,
+    // Reschedules ahead of time, which is a different behaviour entirely.
+    postponeAfterMissRate: 0.1,
     hours: [9, 11, 15],
   },
 };
@@ -186,6 +193,7 @@ async function seedOne(
     startedAt: null,
     completedAt: null,
     notes: '',
+    synthetic: true,
   });
 
   const entityId = String(doc._id);
@@ -216,8 +224,35 @@ async function seedOne(
 
     for (let n = 0; n < times; n += 1) {
       const previous = dueAt;
-      // Moved shortly before it was due, which is what actually happens.
-      const movedAt = new Date(previous.getTime() - random() * 3_600_000);
+
+      /**
+       * Roughly half of postponements happen AFTER the deadline has already
+       * passed, which is the characteristic shape of a chronic postponer:
+       * the deadline is not moved in anticipation, it is moved in response to
+       * having already blown it.
+       *
+       * That produces a DEADLINE_MISSED against the old deadline as well as
+       * the final one -- the multi-miss history the behaviour engine has to be
+       * able to see. Only possible since the uniqueness key gained `ts`.
+       */
+      const movedAfterMissing = random() < pattern.postponeAfterMissRate;
+
+      if (movedAfterMissing) {
+        await appendEvent({
+          type: 'DEADLINE_MISSED',
+          entityType: 'commitment',
+          entityId,
+          ts: previous,
+          source: 'seed',
+          payload: { dueAt: previous.toISOString(), postponedAfterwards: true },
+        });
+        summary.missed += 1;
+        summary.events += 1;
+      }
+
+      const movedAt = movedAfterMissing
+        ? new Date(previous.getTime() + (0.5 + random() * 8) * 3_600_000)
+        : new Date(previous.getTime() - random() * 3_600_000);
       dueAt = new Date(previous.getTime() + (12 + random() * 36) * 3_600_000);
 
       // Through the one permitted writer, exactly as a real postponement is.

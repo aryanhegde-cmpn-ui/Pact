@@ -28,11 +28,11 @@ export default async function ShellLayout({
   const displayName = session.user.name ?? session.user.email ?? 'Signed in';
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="flex min-h-dvh pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <SidebarNav />
 
       {/* Bottom padding on mobile keeps content clear of the fixed tab bar. */}
-      <main className="min-w-0 flex-1 px-md pt-lg pb-24 sm:px-lg lg:px-xl lg:pb-xl xl:px-2xl">
+      <main className="min-w-0 flex-1 px-md pt-lg pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-lg lg:px-xl lg:pb-xl xl:px-2xl">
         <div className="mx-auto w-full max-w-5xl">
           <SignedInHeader displayName={displayName} />
           {children}

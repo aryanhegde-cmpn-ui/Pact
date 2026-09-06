@@ -1,6 +1,9 @@
 import 'server-only';
 
 import { appendEvent } from '@/lib/db/events';
+import { getEnv } from '@/lib/env';
+import { reenqueueForCommitment } from '@/lib/notifications/queue';
+import { getSettings } from '@/lib/notifications/settings';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { changeDeadlineSchema, type ChangeDeadlineInput } from '@/lib/schemas/commitment';
 import type { EventSource } from '@/lib/schemas/event';
@@ -68,6 +71,34 @@ export async function changeDeadline(
       direction: newDueAt > previousDueAt ? 'later' : 'earlier',
     },
   });
+
+  /**
+   * Re-point the notification queue at the new deadline.
+   *
+   * This is the single most likely bug in the notification feature, and it
+   * fails quietly: the deadline moves, the old DEADLINE_APPROACHING stays
+   * queued, and the user is notified about a deadline that no longer exists
+   * while hearing nothing about the one that does. Cancel-and-re-enqueue
+   * rather than update-in-place, because the schedule is derived from the
+   * deadline and recomputing is the only way a stale row cannot survive.
+   *
+   * After the commitment write, so a failure here cannot leave `dueAt`
+   * unchanged while the queue has already moved on.
+   */
+  await reenqueueForCommitment(
+    {
+      id: commitmentId,
+      title: existing.title,
+      outcome: existing.outcome,
+      dueAt: newDueAt,
+      estimateMinutes: existing.estimateMinutes,
+      priority: existing.priority,
+      leadMinutes: existing.leadMinutes ?? null,
+    },
+    await getSettings(),
+    getEnv().APP_TIMEZONE,
+    now,
+  );
 
   return { previousDueAt, newDueAt };
 }

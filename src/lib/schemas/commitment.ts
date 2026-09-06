@@ -39,6 +39,13 @@ export const commitmentSchema = z.object({
   seriesId: z.string().nullable(),
   /** The local calendar date this occurrence represents, in APP_TIMEZONE. */
   occurrenceDate: dateKeySchema.nullable(),
+  /** Per-commitment override of the notification lead time, in minutes. */
+  leadMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60)
+    .nullable(),
   createdAt: z.date(),
   startedAt: z.date().nullable(),
   completedAt: z.date().nullable(),
@@ -64,6 +71,14 @@ export const createCommitmentSchema = z.object({
     .max(24 * 60),
   priority: prioritySchema,
   notes: z.string().max(5_000).optional(),
+  /** Overrides the default notification lead time for this commitment only. */
+  leadMinutes: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60)
+    .nullable()
+    .optional(),
 });
 export type CreateCommitmentInput = z.infer<typeof createCommitmentSchema>;
 
@@ -88,6 +103,13 @@ export const updateCommitmentSchema = z
       .optional(),
     priority: prioritySchema.optional(),
     notes: z.string().max(5_000).optional(),
+    leadMinutes: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(24 * 60)
+      .nullable()
+      .optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, { message: 'No fields to update' });

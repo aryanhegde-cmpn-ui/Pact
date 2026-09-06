@@ -21,10 +21,15 @@ vi.mock('@/lib/db/models/event', () => ({
     }) => {
       store.createCalls += 1;
 
-      // The unique partial index on (entityId, type) for DEADLINE_MISSED.
+      // The unique partial index on (entityId, type, ts) for DEADLINE_MISSED.
+      // `ts` is the missed deadline, so each distinct deadline may be missed
+      // once and a postponed commitment can be missed again.
       if (doc.type === 'DEADLINE_MISSED') {
         const clash = store.rows.some(
-          (row) => row.entityId === doc.entityId && row.type === 'DEADLINE_MISSED',
+          (row) =>
+            row.entityId === doc.entityId &&
+            row.type === 'DEADLINE_MISSED' &&
+            row.ts.getTime() === doc.ts.getTime(),
         );
         if (clash) {
           const error = new Error('E11000 duplicate key error') as Error & { code: number };
@@ -78,12 +83,16 @@ describe('appendEvent', () => {
     expect(store.rows[0]?.ts).toEqual(ts);
   });
 
-  it('reports a duplicate once-per-entity event as not appended, not as an error', async () => {
+  it('reports a duplicate once-per-deadline event as not appended, not as an error', async () => {
+    // `ts` is the missed deadline and is part of the uniqueness key, so it has
+    // to be pinned here exactly as recordObservedMisses pins it. Omitting it
+    // would default to two different instants and describe two real misses.
     const event = {
       type: 'DEADLINE_MISSED',
       entityType: 'commitment',
       entityId: 'c1',
       source: 'system',
+      ts: DUE,
     } as const;
 
     await expect(appendEvent(event)).resolves.toMatchObject({ appended: true });
@@ -184,5 +193,65 @@ describe('lazy DEADLINE_MISSED under concurrent reads', () => {
 
     expect(store.rows).toHaveLength(2);
     expect(store.rows.map((r) => r.entityId).sort()).toEqual(['c1', 'c2']);
+  });
+});
+
+describe('a deadline that moves can be missed more than once', () => {
+  it('records a second miss after the deadline is changed', async () => {
+    const firstDeadline = new Date('2026-09-05T12:00:00.000Z');
+    const secondDeadline = new Date('2026-09-08T12:00:00.000Z');
+
+    // Missed against the original deadline.
+    await recordObservedMisses(
+      [{ _id: 'c1', dueAt: firstDeadline, status: 'pending' }],
+      new Date('2026-09-05T18:00:00Z'),
+    );
+
+    // Postponed, then missed again against the new one.
+    await recordObservedMisses(
+      [{ _id: 'c1', dueAt: secondDeadline, status: 'pending' }],
+      new Date('2026-09-08T18:00:00Z'),
+    );
+
+    const misses = store.rows.filter((row) => row.type === 'DEADLINE_MISSED');
+
+    // Two events. Keying uniqueness on (entityId, type) alone recorded one and
+    // silently dropped the other -- which read a chronic postponer as a
+    // one-off slip, the exact opposite of what this product measures.
+    expect(misses).toHaveLength(2);
+    expect(misses.map((row) => row.ts.toISOString()).sort()).toEqual([
+      firstDeadline.toISOString(),
+      secondDeadline.toISOString(),
+    ]);
+  });
+
+  it('still refuses a duplicate for the SAME deadline', async () => {
+    const deadline = new Date('2026-09-05T12:00:00.000Z');
+    const commitment = [{ _id: 'c1', dueAt: deadline, status: 'pending' as const }];
+
+    await Promise.all([
+      recordObservedMisses(commitment, new Date('2026-09-05T18:00:00Z')),
+      recordObservedMisses(commitment, new Date('2026-09-06T09:00:00Z')),
+      recordObservedMisses(commitment, new Date('2026-09-07T09:00:00Z')),
+    ]);
+
+    expect(store.rows.filter((row) => row.type === 'DEADLINE_MISSED')).toHaveLength(1);
+  });
+
+  it('accumulates one miss per deadline across a chain of postponements', async () => {
+    const deadlines = [
+      new Date('2026-09-05T12:00:00.000Z'),
+      new Date('2026-09-07T12:00:00.000Z'),
+      new Date('2026-09-09T12:00:00.000Z'),
+    ];
+
+    for (const dueAt of deadlines) {
+      await recordObservedMisses(
+        [{ _id: 'c1', dueAt, status: 'pending' }],
+        new Date(dueAt.getTime() + 6 * 3_600_000),
+      );
+    }
+
+    expect(store.rows.filter((row) => row.type === 'DEADLINE_MISSED')).toHaveLength(3);
   });
 });

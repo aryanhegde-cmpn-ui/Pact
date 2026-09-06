@@ -170,9 +170,18 @@ Hobby allows one daily cron, so there is no per-minute job and adding one for
 this would be disproportionate.
 
 Concurrent serverless invocations all notice the same miss at once, so
-idempotency comes from a **unique partial index** on `(entityId, type)` for that
-event type — not from checking first and writing second, which races between the
-two steps. `appendEvent` treats the resulting duplicate-key error as success.
+idempotency comes from a **unique partial index** on `(entityId, type, ts)` for
+that event type — not from checking first and writing second, which races
+between the two steps. `appendEvent` treats the resulting duplicate-key error as
+success.
+
+**`ts` is in that key deliberately.** For this event type `ts` is the missed
+deadline, so each distinct deadline can be missed exactly once. Keying on
+`(entityId, type)` alone allowed one miss per commitment _for its entire life_:
+a commitment missed on Monday, postponed, and missed again on Friday recorded
+one miss and silently dropped the second, which reads a chronic postponer as a
+one-off slip. Repeated misses against a moving deadline are the single most
+important thing this product measures — never narrow this key again.
 
 The event is timestamped at the **deadline**, not at the moment a read noticed
 it. Otherwise the log would record misses as happening whenever the user next
@@ -198,6 +207,88 @@ the derived read keeps working either way.
   is deliberately no "all occurrences".
 - **Ending a series is not a delete.** Past occurrences stay. Only future,
   untouched, still-pending ones are removed.
+
+## Notifications
+
+The queue is a **Notification collection**, not a scheduler. Rows are enqueued
+when a commitment is created, when its deadline moves, and as series
+occurrences materialise; they are delivered by whichever request next arrives
+after they come due. Vercel Hobby has one daily cron, so there is nothing else
+to deliver them.
+
+**`channel` is on the row.** In-app is the only channel delivered today; web
+push is a second delivery adapter over the same queue, which is why every
+enqueue site, the cancellation logic and the delivery rules are already
+channel-agnostic. Never add a parallel queue for a new channel — two queues
+drift.
+
+Wiring that must not be broken:
+
+| Event                          | Queue effect                                                 |
+| ------------------------------ | ------------------------------------------------------------ |
+| Commitment created             | enqueue                                                      |
+| **`changeDeadline()`**         | **cancel pending, then re-enqueue against the new deadline** |
+| Completed or abandoned         | cancel pending                                               |
+| Series occurrence materialised | enqueue                                                      |
+
+The `changeDeadline` case is the one that fails quietly: the deadline moves,
+the old `DEADLINE_APPROACHING` stays queued, and the user is notified about a
+deadline that no longer exists while hearing nothing about the one that does.
+
+**Cancelling does not delete.** It sets `status: 'cancelled'` and leaves the row,
+and the unique key does not include status — so re-enqueueing at a
+previously-used instant collides with a cancelled row. That collision must
+**revive** the row, not be counted as "already queued"; counting it leaves the
+commitment with no pending notifications at all. Moving a deadline forward and
+back again is the obvious way in. A row that has already been `sent` is never
+revived: re-sending something the user has seen is worse than not sending it.
+
+Two delivery rules:
+
+- **Staleness cap.** Anything more than two hours past its scheduled time is
+  marked `skipped`, never sent. Otherwise opening the app after a quiet week
+  delivers forty notifications at once, which teaches exactly one lesson.
+  `ACCOUNTABILITY_CHECK` is exempt while its commitment is unresolved — "did
+  you do it?" has not expired, and suppressing it would mean the commitments
+  avoided longest are asked about least.
+- **Quiet hours**, default 00:00–07:00 in `APP_TIMEZONE`, applied at enqueue so
+  the stored `scheduledFor` is when delivery will actually happen. Notifications
+  inside the window **defer to its end**, never drop.
+
+Copy is accountability framing, not reminders: name the commitment, what
+finishing it looks like, and how long the user said it would take.
+`ACCOUNTABILITY_CHECK` offers **both** answers as actions — offering only "mark
+done" makes the honest answer the effortful one.
+
+## PWA
+
+The service worker in [`public/sw.js`](public/sw.js) is **hand-written and stays
+that way.** No `next-pwa`, no build plugin: this needs a `push` handler we
+control, and the generated ones have been unreliable against the App Router. A
+service worker is the one thing that can persist a bug across deploys.
+
+- **Registered in production only.** A cached worker in development makes every
+  change look like it did not apply.
+- **Never `skipWaiting()` silently.** A waiting worker raises a "New version
+  available — reload" prompt and takes over only when the user agrees.
+  Otherwise a home-screen app, which is never fully closed, stays on a stale
+  build indefinitely.
+- **A cached API response is always marked.** The worker sets `x-pact-stale`
+  and `x-pact-cached-at`, and the UI renders a staleness banner. A cached
+  commitment list is a list of deadlines that may already have passed; showing
+  it as current tells the user they have time they do not have.
+- **`viewport-fit=cover` plus `env(safe-area-inset-*)` padding.** Standalone
+  mode paints under the notch and home indicator.
+- **In-app back navigation must exist everywhere.** Standalone has no browser
+  chrome and, depending on platform, no back gesture.
+
+Notification permission is requested **only from a user gesture, and only once
+at least one commitment exists.** Never on load — that trips the browser's
+abusive-permission heuristics and the block is not recoverable. `denied` is
+permanent and cannot be re-prompted, so that state renders instructions rather
+than a dead button. On iOS the Notification API exists only inside the
+installed PWA; that case is detected rather than shown a button that fails
+silently.
 
 ## Deployment constraints
 
@@ -276,6 +367,16 @@ will exhaust the pool and take the app down.
   same-origin. Never hand-roll this check — every hand-rolled copy missed
   `/\evil.com`, a protocol-relative redirect written with a backslash that
   browsers fold to `/`.
+- **Destructive scripts check the connection string, not `NODE_ENV`.** See
+  [`src/lib/db/guard-uri.ts`](src/lib/db/guard-uri.ts). A local run against a
+  production `MONGODB_URI` has `NODE_ENV=development` and passed the old guard.
+  The guard fails closed: anything not recognisably local or suffixed
+  `-dev`/`-test`/`-local` is treated as production.
+- **Seeded rows carry `synthetic: true`** and are purged by that field.
+  Dropping collections would take real history with them.
+- **Index changes need `npm run db:indexes`.** Mongoose creates missing indexes
+  but never drops a redefined one, so the old key stays in place still
+  enforcing its old constraint.
 - TypeScript is `strict`, plus `noUncheckedIndexedAccess`. Do not weaken it.
 
 ## Layout
@@ -293,6 +394,9 @@ src/lib/db/events.ts   appendEvent — the ONLY write path into the event log
 src/lib/schemas/       zod schemas — source of truth for types
 src/lib/env.ts         environment schema + parsed values, server-only
 src/lib/behavior/      pure analysis functions, no I/O, clock passed in
+src/lib/notifications/ queue, delivery, settings, in-app inbox
+src/components/pwa/    service worker registration, install, permission
+public/sw.js           hand-written service worker -- no build plugin
 src/lib/api/           route guard + error translation
 src/components/
 src/styles/            design tokens + global stylesheet
@@ -319,16 +423,19 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 
 ## Current state
 
-Scaffold, tooling, email/password authentication, and **the core data model**.
+Scaffold, tooling, email/password auth, the core data model, **an installable
+PWA and the notification queue with in-app delivery.**
 
 Working: Commitments with a locked-down deadline, an append-only event log,
-derived miss detection, Series with lazily materialised occurrences, CRUD API
-routes, and a plain list at `/dashboard`.
+derived miss detection, Series with lazily materialised occurrences, a
+notification queue wired to the whole commitment lifecycle, an in-app inbox
+with unread state, and a home-screen-installable app with a real offline state.
 
-Not built yet, deliberately: notifications, PWA, the study planner, and the
-behaviour engine that reads the event log. `npm run seed:history` generates
-60 days of synthetic history with configurable failure patterns to develop that
-engine against.
+Not built yet, deliberately: web push delivery (the next change — a second
+adapter over this queue), the study planner, and the behaviour engine that
+reads the event log. `npm run seed:history` generates 60 days of synthetic
+history, including the repeated-miss-after-postponement pattern that engine has
+to be able to see.
 
 Decisions already made and their reasoning are in
 [`docs/decisions.md`](docs/decisions.md).

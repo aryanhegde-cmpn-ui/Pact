@@ -19,7 +19,9 @@
     "test:watch": "vitest",
     "seed:user": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-user.ts",
     "change:password": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-password.ts",
-    "seed:history": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-history.ts"
+    "seed:history": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-history.ts",
+    "icons": "node scripts/generate-icons.mjs",
+    "db:indexes": "NODE_OPTIONS=--conditions=react-server tsx scripts/sync-indexes.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
@@ -34,13 +36,17 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^20.19.9",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "eslint": "^9.39.0",
     "eslint-config-next": "^16.3.4",
     "eslint-config-prettier": "^10.1.8",
+    "happy-dom": "^20.14.0",
     "prettier": "^3.6.2",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
