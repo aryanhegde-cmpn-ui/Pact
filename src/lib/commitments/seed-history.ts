@@ -4,6 +4,7 @@ import { changeDeadline } from '@/lib/commitments/deadline';
 import { appendEvent } from '@/lib/db/events';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import type { Priority } from '@/lib/schemas/commitment';
+import type { DeadlineChangeCategory } from '@/lib/schemas/reckoning';
 import { addDays, toDateKey, zonedTimeToUtc, type DateKey } from '@/lib/time';
 
 /**
@@ -95,6 +96,19 @@ const TITLES = [
 ] as const;
 
 const PRIORITIES: Priority[] = ['must-win', 'important', 'maintenance'];
+
+/** Free-text reason paired with the category it belongs to. */
+const POSTPONEMENT_REASONS: readonly (readonly [string, DeadlineChangeCategory])[] = [
+  ['Ran out of time', 'underestimated'],
+  ['Underestimated how long it would take', 'underestimated'],
+  ['Something else came up', 'priority-changed'],
+  ['A more urgent thing landed', 'priority-changed'],
+  ['Waiting on someone else', 'blocked-externally'],
+  ['Kept putting it off', 'avoidance'],
+  ['Did not want to start it', 'avoidance'],
+  ['The scope grew', 'scope-changed'],
+  ['Replanned the week', 'deliberate-replan'],
+] as const;
 
 /**
  * Deterministic PRNG.
@@ -257,20 +271,15 @@ async function seedOne(
 
       // Through the one permitted writer, exactly as a real postponement is.
       // Seeding is not a licence to write `dueAt` directly.
-      await changeDeadline(
-        entityId,
-        {
-          newDueAt: dueAt,
-          reason: pick([
-            'Ran out of time',
-            'Something else came up',
-            'Underestimated it',
-            'Waiting on someone else',
-          ]),
-        },
-        movedAt,
-        'seed',
-      );
+      /**
+       * Reason and category are picked together, so the postponement view has
+       * something coherent to summarise. A persona whose categories are random
+       * cannot demonstrate "this person always says avoidance", which is the
+       * pattern that view exists to surface.
+       */
+      const [reason, category] = pick(POSTPONEMENT_REASONS);
+
+      await changeDeadline(entityId, { newDueAt: dueAt, reason, category }, movedAt, 'seed');
       void previous;
       summary.postponements += 1;
       summary.events += 1;

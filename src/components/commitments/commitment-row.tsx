@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { CommitmentTimeline } from '@/components/reckoning/commitment-timeline';
+import { ReckoningFlow } from '@/components/reckoning/reckoning-flow';
 import type { CommitmentView } from '@/lib/commitments/service';
 import { formatDue, formatEstimate, formatOverdue } from './format';
 
@@ -25,6 +27,9 @@ export function CommitmentRow({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reckoning, setReckoning] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [effect, setEffect] = useState<string | null>(null);
 
   async function act(action: 'complete' | 'abandon', body?: unknown): Promise<void> {
     setBusy(action);
@@ -55,7 +60,7 @@ export function CommitmentRow({
     <li
       className={[
         'border-edge bg-surface rounded-md border p-md',
-        commitment.missed ? 'border-signal/50' : '',
+        commitment.needsReckoning ? 'border-signal' : commitment.missed ? 'border-signal/50' : '',
         closed ? 'opacity-60' : '',
       ].join(' ')}
     >
@@ -96,8 +101,18 @@ export function CommitmentRow({
         ) : null}
 
         {commitment.seriesId ? <span className="text-text/40">recurring</span> : null}
+        {commitment.deadlineChanges > 0 ? (
+          <span className="text-text/40">moved {commitment.deadlineChanges}&times;</span>
+        ) : null}
+        {commitment.blockedOn ? (
+          <span className="text-signal/80">blocked on {commitment.blockedOn}</span>
+        ) : null}
         {closed ? <span className="text-text/40">{commitment.status}</span> : null}
       </div>
+
+      {commitment.nextAction ? (
+        <p className="text-text/60 mt-sm text-xs">Next action: {commitment.nextAction}</p>
+      ) : null}
 
       {error ? (
         <p role="alert" className="text-signal mt-sm text-sm">
@@ -105,7 +120,65 @@ export function CommitmentRow({
         </p>
       ) : null}
 
-      {!closed ? (
+      {effect ? (
+        <p
+          role="status"
+          className="border-edge text-text/70 mt-sm rounded border px-md py-sm text-xs"
+        >
+          {effect}
+        </p>
+      ) : null}
+
+      {/*
+        An unanswered miss gets the reckoning, not the ordinary actions.
+        Offering "complete / abandon" here would let the deadline be sidestepped
+        without ever answering for it.
+      */}
+      {commitment.needsReckoning && !effect ? (
+        reckoning ? (
+          <div className="mt-md">
+            <ReckoningFlow
+              commitment={commitment}
+              onDone={(message) => {
+                setEffect(message);
+                setReckoning(false);
+                onChanged();
+              }}
+              onCancel={() => setReckoning(false)}
+            />
+          </div>
+        ) : (
+          <div className="border-signal/40 bg-signal/10 mt-md rounded border p-sm">
+            <p className="text-signal text-sm font-medium">This needs reckoning</p>
+            <p className="text-text/60 mt-2xs text-xs">
+              It cannot be rescheduled until you answer what happened.
+            </p>
+            <button
+              type="button"
+              onClick={() => setReckoning(true)}
+              className="bg-signal mt-sm min-h-11 w-full rounded px-md text-sm font-medium text-[color:var(--pact-base)]"
+            >
+              Reckon with it
+            </button>
+          </div>
+        )
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setShowTimeline((open) => !open)}
+        className="text-text/40 hover:text-text mt-sm text-xs underline"
+      >
+        {showTimeline ? 'Hide history' : 'History'}
+      </button>
+
+      {showTimeline ? (
+        <div className="border-edge mt-sm rounded border p-sm">
+          <CommitmentTimeline commitmentId={commitment.id} />
+        </div>
+      ) : null}
+
+      {!closed && !commitment.needsReckoning ? (
         <div className="mt-md flex flex-wrap gap-sm">
           <button
             type="button"

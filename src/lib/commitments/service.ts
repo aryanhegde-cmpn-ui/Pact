@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { isMissed, minutesOverdue } from '@/lib/behavior/miss';
+import { needsReckoning, type ReckoningEvent } from '@/lib/behavior/reckoning';
+import { EventModel } from '@/lib/db/models/event';
 import { materialiseRange } from '@/lib/commitments/materialise';
 import { recordObservedMisses } from '@/lib/commitments/miss-detection';
 import { appendEvent } from '@/lib/db/events';
@@ -10,6 +12,7 @@ import { getEnv } from '@/lib/env';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import {
+  OPEN_STATUSES,
   createCommitmentSchema,
   updateCommitmentSchema,
   type CommitmentStatus,
@@ -49,10 +52,26 @@ export interface CommitmentView {
   minutesOverdue: number;
   /** Derived: has this deadline moved since it was made? */
   postponed: boolean;
+  /**
+   * Derived: missed and not yet answered.
+   *
+   * Sorts above everything else and blocks rescheduling. Never stored.
+   */
+  needsReckoning: boolean;
+  /** Recovery-action state, so a surface can show what was decided. */
+  nextAction: string | null;
+  blockedOn: string | null;
+  followUpDate: string | null;
+  displacedBy: string | null;
+  deadlineChanges: number;
 }
 
 function toView(
   row: {
+    nextAction?: string | null;
+    blockedOn?: string | null;
+    followUpDate?: Date | null;
+    displacedBy?: string | null;
     _id: unknown;
     title: string;
     outcome: string;
@@ -69,6 +88,8 @@ function toView(
     completedAt?: Date | null;
   },
   now: Date,
+  /** The commitment's events, when the caller has them. Enables derived state. */
+  events: readonly { ts: Date; type: string; payload?: Record<string, unknown> }[] = [],
 ): CommitmentView {
   const status = row.status as CommitmentStatus;
   const missInput = { dueAt: row.dueAt, status };
@@ -91,7 +112,62 @@ function toView(
     missed: isMissed(missInput, now),
     minutesOverdue: minutesOverdue(missInput, now),
     postponed: row.dueAt.getTime() !== row.originalDueAt.getTime(),
+    needsReckoning: needsReckoning(missInput, events as ReckoningEvent[], now),
+    nextAction: row.nextAction ?? null,
+    blockedOn: row.blockedOn ?? null,
+    followUpDate: row.followUpDate?.toISOString() ?? null,
+    displacedBy: row.displacedBy ?? null,
+    deadlineChanges: events.filter((event) => event.type === 'DEADLINE_CHANGED').length,
   };
+}
+
+/**
+ * Loads the events needed to derive reckoning state for a set of commitments.
+ *
+ * One query for the whole page rather than one per row: a dashboard with
+ * twenty commitments would otherwise make twenty round trips to an M0 cluster
+ * to answer a question about three of them.
+ */
+async function eventsByEntity(
+  ids: string[],
+): Promise<Map<string, { ts: Date; type: string; payload?: Record<string, unknown> }[]>> {
+  const grouped = new Map<
+    string,
+    { ts: Date; type: string; payload?: Record<string, unknown> }[]
+  >();
+  if (ids.length === 0) return grouped;
+
+  const rows = await EventModel.find(
+    // Only the types derived state actually reads.
+    {
+      entityId: { $in: ids },
+      type: { $in: ['RECKONING_SUBMITTED', 'DEADLINE_CHANGED', 'RECOVERY_ACTION_SELECTED'] },
+    },
+    { entityId: 1, ts: 1, type: 1, payload: 1 },
+  )
+    .sort({ ts: 1 })
+    .lean();
+
+  for (const row of rows) {
+    const list = grouped.get(row.entityId) ?? [];
+    list.push({ ts: row.ts, type: row.type, payload: row.payload as Record<string, unknown> });
+    grouped.set(row.entityId, list);
+  }
+
+  return grouped;
+}
+
+/**
+ * Needs-reckoning first, then overdue, then by deadline.
+ *
+ * An unanswered miss outranks everything wherever work is listed. Burying it
+ * under today's tidy list is how it stays buried.
+ */
+function byUrgency(a: CommitmentView, b: CommitmentView): number {
+  if (a.needsReckoning !== b.needsReckoning) return a.needsReckoning ? -1 : 1;
+  if (a.missed !== b.missed) return a.missed ? -1 : 1;
+
+  return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
 }
 
 export async function createCommitment(
@@ -201,7 +277,9 @@ export async function listByDateRange(
 
   await recordObservedMisses(inWindow, now);
 
-  return inWindow.map((row) => toView(row, now));
+  const events = await eventsByEntity(inWindow.map((row) => String(row._id)));
+
+  return inWindow.map((row) => toView(row, now, events.get(String(row._id)) ?? [])).sort(byUrgency);
 }
 
 /** Open commitments whose deadline has already passed, regardless of window. */
@@ -217,7 +295,9 @@ export async function listOverdue(now: Date = new Date()): Promise<CommitmentVie
 
   await recordObservedMisses(rows, now);
 
-  return rows.map((row) => toView(row, now));
+  const events = await eventsByEntity(rows.map((row) => String(row._id)));
+
+  return rows.map((row) => toView(row, now, events.get(String(row._id)) ?? [])).sort(byUrgency);
 }
 
 export async function getCommitment(id: string, now: Date = new Date()): Promise<CommitmentView> {
@@ -226,7 +306,9 @@ export async function getCommitment(id: string, now: Date = new Date()): Promise
   if (!row) throw new CommitmentError('No such commitment.', 404);
 
   await recordObservedMisses([row], now);
-  return toView(row, now);
+  const events = await eventsByEntity([String(row._id)]);
+
+  return toView(row, now, events.get(String(row._id)) ?? []);
 }
 
 /**
@@ -365,4 +447,50 @@ export async function abandonCommitment(
 
   const updated = await CommitmentModel.findById(id).lean();
   return toView(updated!, now);
+}
+
+/**
+ * How many commitments are waiting to be reckoned with.
+ *
+ * Shown in the header, and it clears only when every one is answered. A count
+ * that can be dismissed without answering would be a notification badge, which
+ * is the opposite of the point.
+ */
+export async function countNeedsReckoning(now: Date = new Date()): Promise<number> {
+  await connectToDatabase();
+
+  const open = await CommitmentModel.find(
+    { status: { $in: OPEN_STATUSES }, dueAt: { $lt: now } },
+    { dueAt: 1, status: 1 },
+  ).lean();
+
+  if (open.length === 0) return 0;
+
+  const events = await eventsByEntity(open.map((row) => String(row._id)));
+
+  return open.filter((row) =>
+    needsReckoning(
+      { dueAt: row.dueAt, status: row.status as CommitmentStatus },
+      (events.get(String(row._id)) ?? []) as ReckoningEvent[],
+      now,
+    ),
+  ).length;
+}
+
+/** Every commitment awaiting a reckoning, most overdue first. */
+export async function listNeedsReckoning(now: Date = new Date()): Promise<CommitmentView[]> {
+  await connectToDatabase();
+
+  const open = await CommitmentModel.find({
+    status: { $in: OPEN_STATUSES },
+    dueAt: { $lt: now },
+  })
+    .sort({ dueAt: 1 })
+    .lean();
+
+  const events = await eventsByEntity(open.map((row) => String(row._id)));
+
+  return open
+    .map((row) => toView(row, now, events.get(String(row._id)) ?? []))
+    .filter((view) => view.needsReckoning);
 }

@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { appendEvent } from '@/lib/db/events';
+import { needsReckoning } from '@/lib/behavior/reckoning';
+import { appendEvent, readEntityEvents } from '@/lib/db/events';
 import { getEnv } from '@/lib/env';
 import { reenqueueForCommitment } from '@/lib/notifications/queue';
 import { getSettings } from '@/lib/notifications/settings';
@@ -34,7 +35,7 @@ export async function changeDeadline(
    */
   source: EventSource = 'user',
 ): Promise<{ previousDueAt: Date; newDueAt: Date }> {
-  const { newDueAt, reason } = changeDeadlineSchema.parse(input);
+  const { newDueAt, reason, category } = changeDeadlineSchema.parse(input);
 
   const existing = await CommitmentModel.findById(commitmentId).lean();
   if (!existing) {
@@ -46,6 +47,42 @@ export async function changeDeadline(
     throw new DeadlineError('This commitment is already closed; its deadline cannot move.');
   }
 
+  const history = await readEntityEvents(commitmentId);
+
+  /**
+   * AN UNRECKONED MISS CANNOT BE RESCHEDULED.
+   *
+   * This is the point of the whole feature. Rescheduling a missed commitment
+   * without answering for it is exactly the frictionless drag that lets a
+   * deadline move ten times without anyone ever deciding anything -- and it
+   * leaves the postponement history looking like a series of neutral replans
+   * rather than a pattern of avoidance.
+   *
+   * The gate is on the CURRENT deadline: a previous reckoning answered a
+   * previous deadline and does not discharge this one.
+   */
+  if (needsReckoning({ dueAt: existing.dueAt, status: existing.status }, history, now)) {
+    throw new DeadlineError(
+      'This deadline has already passed and has not been reckoned with. ' +
+        'Answer what happened first -- what was missed, why, and what changes. ' +
+        'Then the deadline can move.',
+      'needs-reckoning',
+    );
+  }
+
+  /**
+   * A "too vague" reckoning requires a concrete next action before the
+   * commitment can be rescheduled. Without this the recovery is advice; with
+   * it, it is a precondition.
+   */
+  if (requiresNextAction(history) && !existing.nextAction) {
+    throw new DeadlineError(
+      'This was missed because it was too vague. Define the concrete next ' +
+        'action before giving it a new deadline.',
+      'needs-next-action',
+    );
+  }
+
   const previousDueAt = existing.dueAt;
 
   if (previousDueAt.getTime() === newDueAt.getTime()) {
@@ -54,6 +91,8 @@ export async function changeDeadline(
 
   await CommitmentModel.updateOne({ _id: commitmentId }, { $set: { dueAt: newDueAt } });
 
+  const priorChanges = history.filter((event) => event.type === 'DEADLINE_CHANGED').length;
+
   await appendEvent({
     type: 'DEADLINE_CHANGED',
     entityType: 'commitment',
@@ -61,12 +100,23 @@ export async function changeDeadline(
     ts: now,
     source,
     payload: {
+      // The full record, so one event answers "how far has this drifted and
+      // why" without replaying the chain.
+      originalDueAt: existing.originalDueAt.toISOString(),
       from: previousDueAt.toISOString(),
       to: newDueAt.toISOString(),
-      // Kept against originalDueAt so the total drift is readable from one
-      // event without replaying the whole chain.
-      originalDueAt: existing.originalDueAt.toISOString(),
+      /** Days added against the deadline first committed to, not the last hop. */
+      deltaDaysFromOriginal: Math.round(
+        (newDueAt.getTime() - existing.originalDueAt.getTime()) / 86_400_000,
+      ),
+      deltaDaysFromPrevious: Math.round(
+        (newDueAt.getTime() - previousDueAt.getTime()) / 86_400_000,
+      ),
+      category,
       reason,
+      note: reason,
+      /** How many times it had already moved. The fourth move reads differently to the first. */
+      priorChangeCount: priorChanges,
       // A postponement and a pull-forward are different behaviours.
       direction: newDueAt > previousDueAt ? 'later' : 'earlier',
     },
@@ -105,4 +155,27 @@ export async function changeDeadline(
 
 export class DeadlineError extends Error {
   override readonly name = 'DeadlineError';
+
+  constructor(
+    message: string,
+    /** Lets a surface route the user somewhere useful rather than just showing text. */
+    readonly code: 'needs-reckoning' | 'needs-next-action' | 'generic' = 'generic',
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Whether the most recent reckoning demanded a next action.
+ *
+ * Read from the log rather than a flag, so it stays true to what was actually
+ * chosen and cannot drift.
+ */
+function requiresNextAction(
+  history: readonly { type: string; payload?: Record<string, unknown> }[],
+): boolean {
+  const recoveries = history.filter((event) => event.type === 'RECOVERY_ACTION_SELECTED');
+  const latest = recoveries.at(-1);
+
+  return latest?.payload?.action === 'define-next-action';
 }

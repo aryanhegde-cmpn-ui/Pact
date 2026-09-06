@@ -16,6 +16,12 @@ export const eventTypeSchema = z.enum([
   'DEADLINE_MISSED',
   'COMMITMENT_STARTED',
   'COMMITMENT_COMPLETED',
+  /** A miss was answered: why it happened. */
+  'RECKONING_SUBMITTED',
+  /** What was chosen to change as a result. */
+  'RECOVERY_ACTION_SELECTED',
+  /** Work actually begun, from a recovery start-session. */
+  'SESSION_SCHEDULED',
   'SERIES_CREATED',
   'SERIES_EDITED',
   'SERIES_ENDED',
@@ -62,8 +68,15 @@ export type AppendEventInput = z.infer<typeof appendEventInputSchema>;
  * deadline has passed. Several serverless invocations can notice at the same
  * instant, so uniqueness is enforced by an index in the database rather than by
  * checking first and writing second, which races.
+ *
+ * `RECKONING_SUBMITTED` is here for a different reason: a double submission,
+ * from an impatient tap or a retried request, must not record the same miss
+ * being answered twice. Both are keyed on (entityId, type, ts), and for both
+ * `ts` is the MISSED DEADLINE rather than the moment of writing -- which is
+ * what makes the key mean "this deadline", so a commitment missed, reckoned,
+ * rescheduled and missed again correctly produces a second record.
  */
-export const ONCE_PER_ENTITY: readonly EventType[] = ['DEADLINE_MISSED'];
+export const ONCE_PER_ENTITY: readonly EventType[] = ['DEADLINE_MISSED', 'RECKONING_SUBMITTED'];
 
 export function isOncePerEntity(type: EventType): boolean {
   return ONCE_PER_ENTITY.includes(type);

@@ -40,15 +40,13 @@ Deployed on Vercel Hobby, which means no background workers and one daily cron
 
 ## Status
 
-**Scaffold, auth, the core data model, an installable PWA, the notification
-queue, and web push.** The study planner and the behaviour engine come next.
+**Scaffold, auth, the core data model, an installable PWA, notifications with
+web push, and the miss → reckoning → recovery loop.** The study planner, the
+Overseer surface and the behaviour engine come next.
 
-Working: Commitments whose deadline can only move through a logged, reasoned
-change; an append-only event log; miss detection derived on read; Series with
-lazily materialised occurrences; a notification queue wired to the whole
-commitment lifecycle; in-app **and web-push** delivery over that one queue,
-driven by an external per-minute tick; and a settings surface for types, quiet
-hours and devices.
+A missed deadline cannot be rescheduled until it has been answered: what
+happened, why, and what changes. Every recovery option produces an effect the
+system can observe — see [`docs/product.md`](docs/product.md).
 
 ## Local setup
 

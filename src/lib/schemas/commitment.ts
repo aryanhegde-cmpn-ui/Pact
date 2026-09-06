@@ -1,12 +1,25 @@
 import { z } from 'zod';
 
+import { deadlineChangeCategorySchema } from '@/lib/schemas/reckoning';
 import { isDateKey } from '@/lib/time';
 
-export const commitmentStatusSchema = z.enum(['pending', 'in-progress', 'done', 'abandoned']);
+export const commitmentStatusSchema = z.enum([
+  'pending',
+  'in-progress',
+  /** Waiting on a named person, from a `mark-blocked` recovery. */
+  'blocked',
+  'done',
+  'abandoned',
+]);
 export type CommitmentStatus = z.infer<typeof commitmentStatusSchema>;
 
 /** Statuses where the clock still matters. A done or abandoned thing cannot be missed. */
-export const OPEN_STATUSES: readonly CommitmentStatus[] = ['pending', 'in-progress'];
+/**
+ * Statuses where the clock still matters. A done or abandoned thing cannot be
+ * missed; a blocked one can, because the deadline does not stop for the person
+ * you are waiting on -- that is the fact worth surfacing.
+ */
+export const OPEN_STATUSES: readonly CommitmentStatus[] = ['pending', 'in-progress', 'blocked'];
 
 export const prioritySchema = z.enum(['must-win', 'important', 'maintenance']);
 export type Priority = z.infer<typeof prioritySchema>;
@@ -137,6 +150,14 @@ export const FORBIDDEN_UPDATE_FIELDS = [
 export const changeDeadlineSchema = z.object({
   newDueAt: z.coerce.date(),
   reason: z.string().trim().min(1, 'A reason is required to move a deadline').max(500),
+  /**
+   * Required alongside the free-text reason.
+   *
+   * A hundred distinct sentences cannot show that half of them say
+   * "avoidance". The category is what makes the postponement history
+   * countable, and countable is the only way a pattern becomes visible.
+   */
+  category: deadlineChangeCategorySchema,
 });
 export type ChangeDeadlineInput = z.infer<typeof changeDeadlineSchema>;
 

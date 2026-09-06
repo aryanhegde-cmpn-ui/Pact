@@ -111,6 +111,17 @@ vi.mock('@/lib/db/events', () => ({
     store.events.push(event);
     return { appended: true, type: event.type };
   },
+  // changeDeadline reads the log to decide whether the current deadline has
+  // been reckoned with, so this has to be real rather than empty.
+  readEntityEvents: async (entityId: string) =>
+    store.events
+      .filter((event) => event.entityId === entityId)
+      .map((event) => ({
+        ts: (event.ts as Date) ?? new Date(0),
+        type: event.type as string,
+        payload: (event.payload ?? {}) as Record<string, unknown>,
+        source: 'user',
+      })),
 }));
 
 const { changeDeadline, DeadlineError } = await import('./deadline');
@@ -135,7 +146,11 @@ beforeEach(() => {
 describe('changeDeadline', () => {
   it('moves dueAt', async () => {
     const later = new Date('2026-09-07T12:00:00.000Z');
-    await changeDeadline('c1', { newDueAt: later, reason: 'Blocked on review' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'Blocked on review', category: 'underestimated' },
+      NOW,
+    );
 
     expect(findById('c1')?.dueAt).toEqual(later);
   });
@@ -143,7 +158,11 @@ describe('changeDeadline', () => {
   it('never touches originalDueAt', async () => {
     await changeDeadline(
       'c1',
-      { newDueAt: new Date('2026-09-07T12:00:00.000Z'), reason: 'Blocked' },
+      {
+        newDueAt: new Date('2026-09-07T12:00:00.000Z'),
+        reason: 'Blocked',
+        category: 'underestimated',
+      },
       NOW,
     );
 
@@ -153,16 +172,28 @@ describe('changeDeadline', () => {
 
   it('requires a reason', async () => {
     await expect(
-      changeDeadline('c1', { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: '' }, NOW),
+      changeDeadline(
+        'c1',
+        { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: '', category: 'underestimated' },
+        NOW,
+      ),
     ).rejects.toThrow();
     await expect(
-      changeDeadline('c1', { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: '   ' }, NOW),
+      changeDeadline(
+        'c1',
+        { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: '   ', category: 'underestimated' },
+        NOW,
+      ),
     ).rejects.toThrow();
   });
 
   it('logs the change against the original, with a direction', async () => {
     const later = new Date('2026-09-07T12:00:00.000Z');
-    await changeDeadline('c1', { newDueAt: later, reason: 'Blocked on review' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'Blocked on review', category: 'underestimated' },
+      NOW,
+    );
 
     const event = store.events.find((e) => e.type === 'DEADLINE_CHANGED');
     expect(event?.payload).toMatchObject({
@@ -177,7 +208,11 @@ describe('changeDeadline', () => {
   it('distinguishes pulling a deadline forward from pushing it back', async () => {
     await changeDeadline(
       'c1',
-      { newDueAt: new Date('2026-09-04T12:00:00Z'), reason: 'Finishing early' },
+      {
+        newDueAt: new Date('2026-09-04T12:00:00Z'),
+        reason: 'Finishing early',
+        category: 'underestimated',
+      },
       NOW,
     );
 
@@ -185,9 +220,21 @@ describe('changeDeadline', () => {
   });
 
   it('accumulates one event per move, so drift is auditable', async () => {
-    await changeDeadline('c1', { newDueAt: new Date('2026-09-06T12:00:00Z'), reason: 'a' }, NOW);
-    await changeDeadline('c1', { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: 'b' }, NOW);
-    await changeDeadline('c1', { newDueAt: new Date('2026-09-08T12:00:00Z'), reason: 'c' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: new Date('2026-09-06T12:00:00Z'), reason: 'a', category: 'underestimated' },
+      NOW,
+    );
+    await changeDeadline(
+      'c1',
+      { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: 'b', category: 'underestimated' },
+      NOW,
+    );
+    await changeDeadline(
+      'c1',
+      { newDueAt: new Date('2026-09-08T12:00:00Z'), reason: 'c', category: 'underestimated' },
+      NOW,
+    );
 
     const changes = store.events.filter((e) => e.type === 'DEADLINE_CHANGED');
     expect(changes).toHaveLength(3);
@@ -200,7 +247,11 @@ describe('changeDeadline', () => {
   });
 
   it('is a no-op when the deadline has not actually moved', async () => {
-    await changeDeadline('c1', { newDueAt: ORIGINAL, reason: 'no change' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: ORIGINAL, reason: 'no change', category: 'underestimated' },
+      NOW,
+    );
 
     // A non-move is not a postponement and must not pollute the history.
     expect(store.events).toHaveLength(0);
@@ -211,14 +262,22 @@ describe('changeDeadline', () => {
       store.commitments[0]!.status = status;
 
       await expect(
-        changeDeadline('c1', { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'x' }, NOW),
+        changeDeadline(
+          'c1',
+          { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'x', category: 'underestimated' },
+          NOW,
+        ),
       ).rejects.toThrow(DeadlineError);
     }
   });
 
   it('rejects an unknown commitment', async () => {
     await expect(
-      changeDeadline('nope', { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'x' }, NOW),
+      changeDeadline(
+        'nope',
+        { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'x', category: 'underestimated' },
+        NOW,
+      ),
     ).rejects.toThrow(DeadlineError);
   });
 });
@@ -260,7 +319,11 @@ describe('the notification queue follows the deadline', () => {
     expect(pending()).toHaveLength(3);
 
     const later = new Date('2026-09-07T12:00:00.000Z');
-    await changeDeadline('c1', { newDueAt: later, reason: 'Blocked' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'Blocked', category: 'underestimated' },
+      NOW,
+    );
 
     // The three queued against the OLD deadline are cancelled, on both channels...
     for (const channel of ['in-app', 'web-push']) {
@@ -278,7 +341,11 @@ describe('the notification queue follows the deadline', () => {
     await queueInitial();
     const later = new Date('2026-09-07T12:00:00.000Z');
 
-    await changeDeadline('c1', { newDueAt: later, reason: 'Blocked' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'Blocked', category: 'underestimated' },
+      NOW,
+    );
 
     const now_ = pending().find((n) => n.type === 'DEADLINE_NOW');
     expect((now_?.scheduledFor as Date).toISOString()).toBe(later.toISOString());
@@ -288,7 +355,11 @@ describe('the notification queue follows the deadline', () => {
     await queueInitial();
     const later = new Date('2026-09-07T12:00:00.000Z');
 
-    await changeDeadline('c1', { newDueAt: later, reason: 'Blocked' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'Blocked', category: 'underestimated' },
+      NOW,
+    );
 
     // The quiet failure this guards against: a stale DEADLINE_APPROACHING
     // firing about a deadline that no longer exists.
@@ -302,7 +373,11 @@ describe('the notification queue follows the deadline', () => {
     await queueInitial();
     const before = store.notifications.map((n) => ({ ...n }));
 
-    await changeDeadline('c1', { newDueAt: ORIGINAL, reason: 'no change' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: ORIGINAL, reason: 'no change', category: 'underestimated' },
+      NOW,
+    );
 
     expect(store.notifications).toEqual(before);
   });
@@ -310,7 +385,7 @@ describe('the notification queue follows the deadline', () => {
   it('revives cancelled rows rather than leaving nothing pending', async () => {
     await queueInitial();
     const later = new Date('2026-09-07T12:00:00.000Z');
-    await changeDeadline('c1', { newDueAt: later, reason: 'a' }, NOW);
+    await changeDeadline('c1', { newDueAt: later, reason: 'a', category: 'underestimated' }, NOW);
 
     const { reenqueueForCommitment } = await import('@/lib/notifications/queue');
     const result = await reenqueueForCommitment(
@@ -347,8 +422,16 @@ describe('the notification queue follows the deadline', () => {
     await queueInitial();
     const later = new Date('2026-09-07T12:00:00.000Z');
 
-    await changeDeadline('c1', { newDueAt: later, reason: 'slipped' }, NOW);
-    await changeDeadline('c1', { newDueAt: ORIGINAL, reason: 'back on track' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'slipped', category: 'underestimated' },
+      NOW,
+    );
+    await changeDeadline(
+      'c1',
+      { newDueAt: ORIGINAL, reason: 'back on track', category: 'underestimated' },
+      NOW,
+    );
 
     // The realistic route into the bug: every row for the original deadline had
     // been cancelled, so recreating them collided and produced silence.

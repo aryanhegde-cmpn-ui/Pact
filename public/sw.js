@@ -198,10 +198,15 @@ self.addEventListener('push', (event) => {
        * answer the effortful one, which is how a tool starts collecting
        * flattering data.
        */
+      /**
+       * Both answers, and "No" opens the reckoning rather than abandoning.
+       * Making abandon the only alternative to success would make lying the
+       * cheaper option for anyone who simply ran out of time.
+       */
       actions: isCheck
         ? [
             { action: 'complete', title: 'Yes, done' },
-            { action: 'not-done', title: 'Not done' },
+            { action: 'reckon', title: 'No — reckon it' },
           ]
         : [],
       // An accountability prompt should not vanish unseen from a lock screen.
@@ -222,12 +227,16 @@ self.addEventListener('notificationclick', (event) => {
   }
 
   /**
-   * "Not done" opens the app rather than recording anything.
-   *
-   * That path needs input -- a reason, a new deadline -- and silently marking
-   * something abandoned from a lock-screen tap would record a decision the
-   * user never actually made.
+   * "No — reckon it" opens the app at the reckoning flow rather than recording
+   * anything. That path needs input -- why it was missed, and what changes --
+   * and silently abandoning from a lock-screen tap would record a decision the
+   * user never made.
    */
+  if (action === 'reckon' && data.commitmentId) {
+    event.waitUntil(openApp(`/dashboard?reckon=${data.commitmentId}`));
+    return;
+  }
+
   event.waitUntil(openApp(data.url ?? '/dashboard'));
 });
 

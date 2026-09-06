@@ -15,7 +15,7 @@ export interface InboxItem {
   title: string;
   body: string;
   /** Actions the notification offers. ACCOUNTABILITY_CHECK offers both answers. */
-  actions: { label: string; action: 'complete' | 'abandon' | 'open' }[];
+  actions: { label: string; action: 'complete' | 'abandon' | 'reckon' | 'open' }[];
   deferredFromQuietHours: string | null;
 }
 
@@ -166,10 +166,18 @@ function render(
         // makes the honest answer the effortful one, which is how a tool
         // starts collecting flattering data.
         body: `The deadline has passed. Did you do it?${outcome ? ` Done means: ${outcome}` : ''}`,
+        /**
+         * "No" opens the reckoning, it does not abandon.
+         *
+         * Offering abandon as the only alternative to success makes the
+         * dishonest answer the easy one: "yes" is a tap, "no" throws the
+         * commitment away, and the rational move for anyone who simply ran out
+         * of time is to lie. Reckoning is the honest path, and abandoning
+         * stays available inside it.
+         */
         actions: [
           { label: 'Yes, done', action: 'complete' },
-          { label: 'No — abandon it', action: 'abandon' },
-          { label: 'Open', action: 'open' },
+          { label: 'No — reckon it', action: 'reckon' },
         ],
       };
 
