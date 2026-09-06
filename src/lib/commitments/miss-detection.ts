@@ -42,11 +42,28 @@ export async function recordObservedMisses(
         type: 'DEADLINE_MISSED',
         entityType: 'commitment',
         entityId: String(commitment._id),
-        // The event's timestamp is the DEADLINE, not the moment a read
-        // happened to notice. Otherwise the log would record misses as
-        // occurring whenever the user next opened the app, and the behaviour
-        // engine would read "you missed this at 09:00 on Sunday" for a
-        // deadline that passed on Friday afternoon.
+        /**
+         * The timestamp is the DEADLINE, never the moment of emission.
+         *
+         * TWO separate things depend on this, and the second is not obvious:
+         *
+         * 1. Honesty. Emitting at "now" would record misses as happening
+         *    whenever the user next opened the app, so the behaviour engine
+         *    would read "you missed this at 09:00 on Sunday" for a deadline
+         *    that passed on Friday afternoon.
+         *
+         * 2. UNIQUENESS. The index is unique on (entityId, type, ts). Because
+         *    `ts` is the deadline, concurrent observers of the same miss all
+         *    produce the same key and collapse to one row, while a genuinely
+         *    different deadline produces a different key and records
+         *    separately. Timestamp this at emission time instead and every
+         *    observer gets a distinct `ts`: the index stops deduplicating and
+         *    a single missed deadline is written once per read, forever.
+         *
+         * Changing this line silently breaks deduplication. See the test
+         * "miss events are timestamped at the deadline" below, and the index
+         * definition in src/lib/db/models/event.ts.
+         */
         ts: commitment.dueAt,
         source: 'system',
         payload: { dueAt: commitment.dueAt.toISOString(), noticedAt: now.toISOString() },

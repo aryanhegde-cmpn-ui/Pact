@@ -17,6 +17,7 @@ import mongoose from 'mongoose';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { EventModel } from '@/lib/db/models/event';
 import { NotificationModel } from '@/lib/db/models/notification';
+import { PushSubscriptionModel } from '@/lib/db/models/push-subscription';
 import { SeriesModel } from '@/lib/db/models/series';
 import { SettingsModel } from '@/lib/db/models/settings';
 import { UserModel } from '@/lib/db/models/user';
@@ -28,6 +29,7 @@ const MODELS = [
   ['commitments', CommitmentModel],
   ['events', EventModel],
   ['notifications', NotificationModel],
+  ['push_subscriptions', PushSubscriptionModel],
   ['series', SeriesModel],
   ['settings', SettingsModel],
   ['users', UserModel],

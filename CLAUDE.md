@@ -216,11 +216,12 @@ occurrences materialise; they are delivered by whichever request next arrives
 after they come due. Vercel Hobby has one daily cron, so there is nothing else
 to deliver them.
 
-**`channel` is on the row.** In-app is the only channel delivered today; web
-push is a second delivery adapter over the same queue, which is why every
-enqueue site, the cancellation logic and the delivery rules are already
-channel-agnostic. Never add a parallel queue for a new channel — two queues
-drift.
+**`channel` is on the row.** Two channels are delivered: `in-app`, by whichever
+request reads the inbox, and `web-push`, by the external per-minute tick. Both
+read the same queue, and each delivery path **must filter on `channel`** — an
+unscoped read marks the other channel's rows as sent without sending anything,
+and the notification simply vanishes with no error. Never add a parallel queue
+for a new channel; two queues drift.
 
 Wiring that must not be broken:
 
@@ -259,6 +260,57 @@ Copy is accountability framing, not reminders: name the commitment, what
 finishing it looks like, and how long the user said it would take.
 `ACCOUNTABILITY_CHECK` offers **both** answers as actions — offering only "mark
 done" makes the honest answer the effortful one.
+
+## Web push
+
+Push is a second adapter over the queue above, not a second queue. Everything
+about scheduling has already happened by the time anything reaches the sender.
+
+**Delivery is a queue scan, never a moment-in-time trigger.**
+`POST /api/notifications/dispatch` asks "what is due and still pending?" and
+acts on all of it. That is what makes a missed tick self-healing, and it is why
+the Vercel daily cron works as a backstop for the per-minute Cloudflare Worker:
+running late delivers late instead of not at all. **Nothing may ever depend on
+the tick arriving.**
+
+**Every row is claimed before it is sent** — a conditional update on
+`status: 'pending'`. Exactly one of two overlapping invocations wins; the loser
+sees `modifiedCount: 0`. Sending first and marking after double-sends whenever
+one tick runs slow. The cost is that a crash between claim and send loses that
+notification rather than repeating it, which is the right way round: a missed
+reminder is a gap, a duplicated one is noise, and noise is what teaches someone
+to ignore the app.
+
+**The secret is compared in constant time.** A `===` returns on the first
+differing byte, so response timing leaks how many leading characters were
+right.
+
+Subscription lifecycle:
+
+- **404 and 410 delete the subscription immediately.** They are definitive: the
+  endpoint will never exist again, and retrying generates an error on every
+  tick forever.
+- Any other error increments `failureCount`; five **consecutive** failures
+  delete it. Any success resets the count, so a device that is merely offline
+  is not deleted.
+- **Browsers rotate or drop subscriptions without telling anyone.** The server
+  keeps sending to a dead endpoint, the push service accepts it, and nothing
+  arrives — with no error anywhere. This is the most common way push silently
+  stops, so the browser's current subscription is compared against the server's
+  on every app load and re-registered on mismatch.
+- Payloads are capped near 4KB before encryption overhead. Send an identifier
+  and short text, never a commitment document.
+- `tag` is `commitmentId:type`, so a re-send **replaces** rather than stacks.
+
+**The external tick fails silently.** Cloudflare cron does not retry and raises
+no alert, so `lastDispatchAt` is recorded on every dispatch, exposed at
+`/api/health/detail`, and surfaced as a dashboard warning past 15 minutes.
+Without it push can stop for a week and the only symptom is notifications not
+arriving — indistinguishable from having nothing due.
+
+The Worker in [`infra/tick`](infra/tick/README.md) holds **no logic** on
+purpose, so the scheduler stays swappable for cron-job.org or anything else
+that can make one authenticated request.
 
 ## PWA
 
@@ -394,7 +446,9 @@ src/lib/db/events.ts   appendEvent — the ONLY write path into the event log
 src/lib/schemas/       zod schemas — source of truth for types
 src/lib/env.ts         environment schema + parsed values, server-only
 src/lib/behavior/      pure analysis functions, no I/O, clock passed in
-src/lib/notifications/ queue, delivery, settings, in-app inbox
+src/lib/notifications/ queue, delivery, dispatch, push, settings, inbox
+src/lib/db/migrations/ one-off index migrations
+infra/tick/            Cloudflare Worker: the per-minute tick, no logic
 src/components/pwa/    service worker registration, install, permission
 public/sw.js           hand-written service worker -- no build plugin
 src/lib/api/           route guard + error translation
@@ -423,16 +477,16 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 
 ## Current state
 
-Scaffold, tooling, email/password auth, the core data model, **an installable
-PWA and the notification queue with in-app delivery.**
+Scaffold, tooling, email/password auth, the core data model, an installable
+PWA, the notification queue, **and web push delivered by an external tick**.
 
 Working: Commitments with a locked-down deadline, an append-only event log,
 derived miss detection, Series with lazily materialised occurrences, a
-notification queue wired to the whole commitment lifecycle, an in-app inbox
-with unread state, and a home-screen-installable app with a real offline state.
+notification queue wired to the whole commitment lifecycle, in-app and web-push
+delivery over that one queue, a settings surface, and a home-screen-installable
+app with a real offline state.
 
-Not built yet, deliberately: web push delivery (the next change — a second
-adapter over this queue), the study planner, and the behaviour engine that
+Not built yet, deliberately: the study planner, and the behaviour engine that
 reads the event log. `npm run seed:history` generates 60 days of synthetic
 history, including the repeated-miss-after-postponement pattern that engine has
 to be able to see.

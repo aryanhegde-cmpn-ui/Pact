@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from 'react';
 
+import { reconcileSubscription } from './push-subscription';
 import { usePlatform } from './use-platform';
 
 /**
@@ -27,8 +28,10 @@ export type PermissionState =
 
 export function NotificationPermission({
   commitmentCount,
+  vapidPublicKey,
 }: {
   commitmentCount: number;
+  vapidPublicKey?: string;
 }): React.JSX.Element | null {
   const { standalone, isIOS } = usePlatform();
   /**
@@ -99,7 +102,13 @@ export function NotificationPermission({
           onClick={() => {
             setAsking(true);
             void Notification.requestPermission()
-              .then((result) => setJustAnswered(result as PermissionState))
+              .then(async (result) => {
+                setJustAnswered(result as PermissionState);
+                // Subscribed from the SAME gesture that granted permission.
+                // Deferring it to a later load is how a user grants permission
+                // and still never receives anything.
+                if (result === 'granted') await reconcileSubscription(vapidPublicKey);
+              })
               .finally(() => setAsking(false));
           }}
           className="bg-signal min-h-11 shrink-0 rounded px-md text-sm font-medium text-[color:var(--pact-base)] disabled:opacity-50"

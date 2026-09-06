@@ -24,7 +24,14 @@ export interface DeliveryReport {
 }
 
 export async function deliverDue(now: Date = new Date()): Promise<DeliveryReport> {
-  const due = await NotificationModel.find({ status: 'pending', scheduledFor: { $lte: now } })
+  const due = await NotificationModel.find({
+    // Scoped to this channel. Without it, an in-app read would mark web-push
+    // rows as sent without anything ever being pushed -- the notification
+    // would simply vanish, with no error and no way to tell it had happened.
+    channel: 'in-app',
+    status: 'pending',
+    scheduledFor: { $lte: now },
+  })
     .sort({ scheduledFor: 1 })
     .limit(BATCH)
     .lean();

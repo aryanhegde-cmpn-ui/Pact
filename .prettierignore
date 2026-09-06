@@ -3,3 +3,5 @@ coverage
 next-env.d.ts
 node_modules
 package-lock.json
+infra/tick/.wrangler
+infra/tick/node_modules

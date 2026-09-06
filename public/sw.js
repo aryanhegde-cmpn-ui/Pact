@@ -160,9 +160,9 @@ async function shellStrategy(request) {
 /**
  * Push handler.
  *
- * Present and wired now so the next change adds a subscription store and a
- * server key rather than reshaping the worker. It reads the same payload shape
- * the in-app channel renders from.
+ * Renders straight from the payload. The payload is small on purpose -- push
+ * services cap it near 4KB and encryption eats into that -- so it carries an
+ * identifier and short text, never a commitment document.
  */
 self.addEventListener('push', (event) => {
   if (!event.data) return;
@@ -174,31 +174,128 @@ self.addEventListener('push', (event) => {
     payload = { title: 'Pact', body: event.data.text() };
   }
 
+  const isCheck = payload.type === 'ACCOUNTABILITY_CHECK';
+
   event.waitUntil(
     self.registration.showNotification(payload.title ?? 'Pact', {
       body: payload.body ?? '',
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-      tag: payload.tag ?? undefined,
-      data: { url: payload.url ?? '/dashboard' },
-      // Accountability prompts should not vanish unseen from a lock screen.
-      requireInteraction: payload.type === 'ACCOUNTABILITY_CHECK',
+      /**
+       * The tag makes a re-send REPLACE the previous notification for the same
+       * commitment and type rather than stacking beside it. Five copies of one
+       * reminder on a lock screen is how a notification channel gets muted.
+       */
+      tag: payload.tag ?? 'pact',
+      renotify: Boolean(payload.tag),
+      data: {
+        url: payload.url ?? '/dashboard',
+        commitmentId: payload.commitmentId ?? null,
+        notificationId: payload.notificationId ?? null,
+      },
+      /**
+       * Both answers, as buttons. Offering only "done" would make the honest
+       * answer the effortful one, which is how a tool starts collecting
+       * flattering data.
+       */
+      actions: isCheck
+        ? [
+            { action: 'complete', title: 'Yes, done' },
+            { action: 'not-done', title: 'Not done' },
+          ]
+        : [],
+      // An accountability prompt should not vanish unseen from a lock screen.
+      requireInteraction: isCheck,
     }),
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const target = event.notification.data?.url ?? '/dashboard';
+  const { action, notification } = event;
+  const data = notification.data ?? {};
+  notification.close();
 
-  event.waitUntil(
-    (async () => {
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      // Focus an open window rather than opening a second copy of the app.
-      for (const client of clients) {
-        if (client.url.includes(target) && 'focus' in client) return client.focus();
-      }
-      return self.clients.openWindow(target);
-    })(),
-  );
+  if (action === 'complete') {
+    // Answered from the notification itself, without opening the app.
+    event.waitUntil(completeFromNotification(data));
+    return;
+  }
+
+  /**
+   * "Not done" opens the app rather than recording anything.
+   *
+   * That path needs input -- a reason, a new deadline -- and silently marking
+   * something abandoned from a lock-screen tap would record a decision the
+   * user never actually made.
+   */
+  event.waitUntil(openApp(data.url ?? '/dashboard'));
 });
+
+/**
+ * Completes a commitment straight from the notification.
+ *
+ * The worker has NO session context of its own, so the request must carry
+ * credentials explicitly -- `credentials: 'include'` -- or it arrives
+ * unauthenticated and the completion silently does not happen.
+ */
+async function completeFromNotification(data) {
+  if (!data.commitmentId) return openApp('/dashboard');
+
+  try {
+    const response = await fetch(`/api/commitments/${data.commitmentId}/complete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+
+    if (response.status === 401) {
+      // The session expired. Opening sign-in is the only useful thing left --
+      // failing silently would look exactly like the action having worked.
+      return openApp(`/?returnTo=${encodeURIComponent(data.url ?? '/dashboard')}`);
+    }
+
+    if (!response.ok) {
+      return self.registration.showNotification('Pact', {
+        body: 'Could not mark that complete. Open the app to try again.',
+        icon: '/icons/icon-192.png',
+        tag: 'pact:action-failed',
+        data: { url: data.url ?? '/dashboard' },
+      });
+    }
+
+    // Confirmation, because the action produced no visible change otherwise.
+    return self.registration.showNotification('Marked complete', {
+      body: 'Recorded without opening the app.',
+      icon: '/icons/icon-192.png',
+      tag: `${data.commitmentId}:completed`,
+      data: { url: data.url ?? '/dashboard' },
+    });
+  } catch {
+    // Offline. Opening the app queues nothing, but it is honest about the
+    // action not having been recorded.
+    return openApp(data.url ?? '/dashboard');
+  }
+}
+
+/** Focuses an open Pact window if there is one, rather than opening a second. */
+async function openApp(url) {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+  for (const client of clients) {
+    if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+      // Navigate the existing window to the target, then focus it. Opening a
+      // second copy of an installed app is disorienting and leaves two states.
+      if ('navigate' in client && client.url !== url) {
+        try {
+          await client.navigate(url);
+        } catch {
+          // Navigation can be refused; focusing is still better than a new window.
+        }
+      }
+      return client.focus();
+    }
+  }
+
+  return self.clients.openWindow(url);
+}

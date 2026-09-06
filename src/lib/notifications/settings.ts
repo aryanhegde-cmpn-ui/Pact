@@ -8,6 +8,9 @@ export interface ResolvedSettings {
   quietHoursEnd: string;
   dailyReviewAt: string;
   defaultLeadMinutes: number;
+  disabledTypes: string[];
+  /** Null until the first dispatch has run. */
+  lastDispatchAt: Date | null;
 }
 
 /**
@@ -28,6 +31,8 @@ export async function getSettings(): Promise<ResolvedSettings> {
     quietHoursEnd: doc?.quietHoursEnd ?? DEFAULT_SETTINGS.quietHoursEnd,
     dailyReviewAt: doc?.dailyReviewAt ?? DEFAULT_SETTINGS.dailyReviewAt,
     defaultLeadMinutes: doc?.defaultLeadMinutes ?? DEFAULT_SETTINGS.defaultLeadMinutes,
+    disabledTypes: doc?.disabledTypes ?? [],
+    lastDispatchAt: doc?.lastDispatchAt ?? null,
   };
 }
 

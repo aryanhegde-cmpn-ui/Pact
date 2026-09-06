@@ -21,7 +21,9 @@
     "change:password": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-password.ts",
     "seed:history": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-history.ts",
     "icons": "node scripts/generate-icons.mjs",
-    "db:indexes": "NODE_OPTIONS=--conditions=react-server tsx scripts/sync-indexes.ts"
+    "db:indexes": "NODE_OPTIONS=--conditions=react-server tsx scripts/sync-indexes.ts",
+    "db:migrate:miss-index": "NODE_OPTIONS=--conditions=react-server tsx scripts/migrate-miss-index.ts",
+    "vapid:generate": "tsx scripts/generate-vapid.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
@@ -32,6 +34,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "server-only": "^0.0.1",
+    "web-push": "^3.6.7",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -41,6 +44,7 @@
     "@types/node": "^20.19.9",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9.39.0",
     "eslint-config-next": "^16.3.4",
     "eslint-config-prettier": "^10.1.8",
