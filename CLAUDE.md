@@ -39,6 +39,29 @@ A **Series** holds a recurrence rule. Its **occurrences** are real Commitment
 documents, so an occurrence can be completed, postponed and reasoned about like
 any other commitment.
 
+### Two creation paths, one model
+
+**Manually created** commitments require title, outcome, deadline, estimate and
+priority. There is no quick-add: the friction exists to stop vague commitments
+entering the history, and junk created in two seconds becomes junk history
+forever.
+
+**Plan-generated** commitments — produced from a curriculum definition — inherit
+their outcome and estimate from that definition and are pure checkboxes. The
+guard has nothing to catch, because "DSA problem 47: Valid Anagram, medium,
+25 min" is already specific.
+
+Both paths produce the same Commitment. Only the input differs. See
+docs/product.md, Conflict 3.
+
+### Two surfaces, one dataset
+
+**Today is warm** — a greeting, a progress ring, today's mission. **Reckoning,
+history and patterns are cold** — precise and unflattering.
+
+No cross-contamination. The reckoning flow never softens and the Today page
+never lectures. That is a rule the code holds, not a matter of taste.
+
 ## The feature test
 
 > **Does this increase the probability that the user actually does the thing?**
@@ -66,6 +89,8 @@ Never build these. They are not "later", not "behind a flag", not "opt-in".
 - Leaderboards
 - Any reward for **creating** or **reorganising** commitments
 - Any score driven by **commitment volume**
+- Motivational quote generation
+- An "hours wasted" metric — shame with no action attached
 
 The reasoning: every one of these rewards _engagement with the tool_ rather
 than _execution of the work_. They make tidying the backlog feel like progress.
@@ -96,20 +121,24 @@ happened, accurately, including the parts that are unflattering. It never
 decides the reward, never applies it, and never softens the record to make the
 conversation easier.
 
-### Adherence is a rolling rate, never a streak
+### Adherence is a rolling rate; a streak is never the headline
 
-Adherence is displayed as a **rolling rate over a window** — "you kept 14 of
-the last 20" — never as a count of consecutive days.
+Adherence is displayed **primarily as a rolling rate over a window** — "17 of
+the last 21 days".
 
-A streak is a lie with a number attached. It converts one missed day into a
-reason to stop looking at the app entirely: the number resets to zero, the
-sunk investment evaporates, and the rational move becomes avoidance. It also
-rewards the wrong thing, since protecting a streak means avoiding hard
-commitments rather than keeping them.
+A consecutive-day count **may** appear as a secondary stat. It must never be
+the headline, and it must **never gate a reward or a consequence**. See
+docs/product.md, Conflict 1.
 
-A rolling rate degrades gracefully. One miss moves it a little, an honest
-pattern moves it a lot, and recovery is always visible as the window advances.
-It is also the number an Overseer can act on.
+The reason is the cliff. Miss one day at 40 and a consecutive counter reads 0,
+which is a lie about your adherence and the documented trigger for abandoning
+the app entirely. It also rewards the wrong thing: protecting a streak means
+avoiding hard commitments rather than keeping them. A rate degrades gracefully,
+recovers visibly, and is the number an Overseer can act on.
+
+Milestone recognition survives as a **message tied to a real reward** — never
+as a collectible. Today's progress ring is fine: it measures execution, resets
+daily, and cannot accumulate into a score.
 
 ## Data ownership
 
@@ -161,6 +190,74 @@ Derived values belong in [`src/lib/behavior/`](src/lib/behavior/) as pure
 functions over events: no I/O, no database access, no `fetch`, and no reading
 the clock — pass the current time in as an argument so the analysis stays
 deterministic and testable.
+
+## Identity, roles and ownership
+
+**Sign-in takes one field: username or email.** Both resolve to the same
+account. Usernames are 3–20 characters of lowercase letters, digits, hyphen and
+underscore, unique case-insensitively via a stored `usernameLower` — not a
+collation, which is invisible in the document and silently degrades to
+case-sensitive when a query does not request it. `admin`, `root`, `system`,
+`pact`, `overseer`, `api` and `null` are reserved. Username changes are a
+script, never a UI action.
+
+**The lockout counter keys on the resolved user id, never the submitted
+string.** With a per-string counter, "aryan" and "aryan@example.com" hold
+separate budgets and an attacker alternating between them gets double the
+attempts against one account. Identifiers resolving to nobody get their own
+hashed counter, so enumeration is bounded without the collection becoming a
+list of guessed identifiers. Unknown username, unknown email, wrong password
+and locked-out all return **one byte-identical response**.
+
+**Two roles: `primary` and `overseer`**, as an enum plus a permission matrix.
+A third role later is a new value and a new column, not a new subsystem.
+
+**Every scoped collection carries `ownerId`.** Commitments, series, events,
+notifications, push subscriptions and settings. Every query filters on it, so a
+primary reading their own data and an overseer reading the same primary's run
+one query with a different value — rather than two code paths, one of which
+eventually forgets. There is a **scanner test** that fails on any query against
+a scoped model whose call text lacks an ownership filter, in the same style as
+the `dueAt` writer scanner.
+
+## Permissions
+
+**One matrix, in [`src/lib/auth/permissions.ts`](src/lib/auth/permissions.ts).**
+Every route guard derives from it via `requireCapability`. There is a test that
+fails on any route without a guard, and on any inline `role === '...'`
+comparison. Scattered role checks are how the fifteenth handler ends up subtly
+wrong.
+
+- **The primary has NO write path to reward or consequence configuration.** Not
+  a hidden route, not a field accepted and ignored — the route must reject it.
+  An arrangement whose subject can edit their own consequences is not an
+  arrangement.
+- **The overseer** reads progress, completions, misses, reckoning categories,
+  deadline changes and adherence; writes only consequence configuration. No
+  focus-session contents. **No raw event log** — nobody has `events:read` over
+  HTTP. The overseer reads a purpose-built projection instead, because a
+  filtered log exposes every future event type by default while a projection
+  exposes only what someone put in it.
+- **Free-text notes are private by default.** Structured categories are always
+  visible; that is where the accountability value is. The free text is where
+  the primary is honest with themselves, and they will be less honest if they
+  know it is read. Sharing is opt-in, in settings.
+
+## The relationship
+
+A **Relationship collection**, not a field on User. A foreign key records only
+the current state; a collection records the arrangement itself, so "you had an
+overseer for six weeks and then removed them" survives it ending.
+
+- **Invite:** single-use, 7-day expiry, stored hashed — it is a bearer
+  credential. There is no open registration and there should not be.
+- **Redemption is atomic**: a conditional update claims the row before the
+  account is created, so a losing race leaves no orphan account.
+- **Revocation is immediate.** The guard re-reads the relationship on every
+  request rather than trusting the session, because a 90-day JWT issued before
+  revocation would otherwise keep working — which is not a revocation.
+- Revocation ends the **relationship**. It must never become a way to dismiss
+  an individual consequence. That distinction is the point of the arrangement.
 
 ## The deadline lockdown
 
@@ -508,7 +605,7 @@ src/app/page.tsx       landing + sign-in, deliberately OUTSIDE (shell)
 src/app/(shell)/       routes rendered inside the nav shell (signed-in only)
 src/app/api/           route handlers
 src/proxy.ts           route protection (Next 16's renamed middleware)
-src/lib/auth/          Auth.js config, password hashing, throttling, returnTo
+src/lib/auth/          Auth.js config, permissions matrix, throttling, relationship
 src/lib/commitments/   commitment + series services, reckoning, timeline, deadline
 src/lib/db/            mongoose connection + models
 src/lib/db/events.ts   appendEvent — the ONLY write path into the event log
@@ -546,23 +643,20 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 
 ## Current state
 
-Scaffold, auth, the core data model, an installable PWA, notifications with
-web push, and **the miss → reckoning → recovery loop.**
+Scaffold, auth, the core data model, an installable PWA, notifications with web
+push, the reckoning loop, **and the role/ownership model.**
 
-Working: Commitments with a locked-down deadline that cannot move while a miss
-is unanswered, an append-only event log, derived miss and needs-reckoning
-state, the three-step reckoning flow with enforced recovery actions, a
-commitment timeline, a repeated-postponement view, Series with lazily
-materialised occurrences, and in-app plus web-push delivery over one queue.
+Working: username or email sign-in, primary and overseer roles, ownership
+scoping across every collection with a scanner enforcing it, a permission
+matrix every route derives from, single-use invites with immediate revocation,
+and an overseer surface showing categories but not free text.
 
-Not built yet: the study planner, the Overseer surface, and the behaviour
-engine that reads the event log. `npm run seed:history` generates 60 days of
-synthetic history with the repeated-miss-after-postponement pattern that engine
-has to be able to see.
+Not built yet: rewards and consequences (the permission surface is ready for
+them), the curriculum, the study planner, and the behaviour engine.
 
-Decisions already made and their reasoning are in
-[`docs/decisions.md`](docs/decisions.md). The product's purpose is in
-[`docs/product.md`](docs/product.md).
+The product is specified in [`docs/product.md`](docs/product.md), which is
+authoritative where this file disagrees. Decisions and their reasoning are in
+[`docs/decisions.md`](docs/decisions.md).
 
 <!-- BEGIN:nextjs-agent-rules -->
 

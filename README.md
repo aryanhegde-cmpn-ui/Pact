@@ -41,12 +41,15 @@ Deployed on Vercel Hobby, which means no background workers and one daily cron
 ## Status
 
 **Scaffold, auth, the core data model, an installable PWA, notifications with
-web push, and the miss → reckoning → recovery loop.** The study planner, the
-Overseer surface and the behaviour engine come next.
+web push, the reckoning loop, and the role/ownership model.** Rewards and
+consequences, the curriculum and the behaviour engine come next.
 
-A missed deadline cannot be rescheduled until it has been answered: what
-happened, why, and what changes. Every recovery option produces an effect the
-system can observe — see [`docs/product.md`](docs/product.md).
+Sign in with a username or an email. Two roles — primary and overseer — with a
+permission matrix every route derives from, ownership scoping on every
+collection enforced by a source scanner, and single-use invites with immediate
+revocation.
+
+The product is specified in [`docs/product.md`](docs/product.md).
 
 ## Local setup
 
@@ -202,13 +205,34 @@ docs/
 The landing page sits outside `(shell)` so a signed-out visitor renders no
 navigation. `/mirror` is deferred and its stub has been removed.
 
-Two rules in the data model are enforced by tests that scan the source rather
-than by convention, because both are the product rather than a style
-preference:
+Four rules are enforced by tests that scan the source rather than by
+convention, because each is a property of the whole codebase — a behavioural
+test only proves it for the handlers someone remembered to call:
 
-- **Only `changeDeadline()` may write `dueAt`**, and it requires a reason.
+- **Only `changeDeadline()` may write `dueAt`**, and it requires a reason and a
+  category.
 - **The event log has no update or delete path anywhere**, including through
   the raw driver.
+- **No query touches a scoped collection without an ownership filter.**
+- **No API route lacks a permission guard**, and no handler compares roles
+  inline.
+
+## Roles
+
+**Primary** does the work. **Overseer** holds the stakes: they read the record —
+completions, misses, reckoning categories, deadline changes, adherence — and
+configure rewards and consequences. The primary has **no write path** to that
+configuration, which is the point of the arrangement.
+
+Free-text notes are private by default. Structured categories are always
+visible; sharing the notes is opt-in, because that is where you are honest with
+yourself and you will be less honest if it is read.
+
+There is **no open registration.** The primary generates a single-use invite
+(7-day expiry) and the overseer signs up through it. The primary can revoke at
+any time and it takes effect on the overseer's next request — the relationship
+is re-read per request rather than trusted from the session, because a 90-day
+JWT would otherwise outlive the revocation.
 
 ## Web push
 

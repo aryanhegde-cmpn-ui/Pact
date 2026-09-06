@@ -1,5 +1,4 @@
-import { auth } from '@/lib/auth';
-import { jsonError, jsonOk, readJson, translateError } from '@/lib/api/guard';
+import { jsonOk, readJson, requireCapability } from '@/lib/api/guard';
 import { createCommitment, listByDateRange, listOverdue } from '@/lib/commitments/service';
 import { createCommitmentSchema, dateRangeSchema } from '@/lib/schemas/commitment';
 import { getEnv } from '@/lib/env';
@@ -9,11 +8,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** List by local date range. Defaults to today when no range is given. */
-export async function GET(request: Request): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
-
-  try {
+export const GET = requireCapability('commitment:read', async (actor, request) => {
+  {
     const timeZone = getEnv().APP_TIMEZONE;
     const now = new Date();
     const url = new URL(request.url);
@@ -25,8 +21,8 @@ export async function GET(request: Request): Promise<Response> {
     });
 
     const [inRange, overdue] = await Promise.all([
-      listByDateRange(range.from, range.to, timeZone, now),
-      listOverdue(now),
+      listByDateRange(range.from, range.to, timeZone, actor.ownerId, now),
+      listOverdue(actor.ownerId, now),
     ]);
 
     // Overdue work is returned separately rather than merged: it belongs above
@@ -40,23 +36,16 @@ export async function GET(request: Request): Promise<Response> {
       commitments: inRange,
       overdue: overdue.filter((c) => !inRangeIds.has(c.id)),
     });
-  } catch (error) {
-    return translateError(error);
   }
-}
+});
 
-export async function POST(request: Request): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
-
-  try {
+export const POST = requireCapability('commitment:write', async (actor, request) => {
+  {
     const body = await readJson(request);
     // Every field is required -- there is no quick-add path. See the schema.
     const input = createCommitmentSchema.parse(body);
-    const created = await createCommitment(input);
+    const created = await createCommitment(input, actor.ownerId);
 
     return jsonOk(created, 201);
-  } catch (error) {
-    return translateError(error);
   }
-}
+});

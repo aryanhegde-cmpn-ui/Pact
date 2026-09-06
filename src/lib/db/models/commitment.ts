@@ -33,6 +33,16 @@ import { commitmentStatusSchema, prioritySchema } from '@/lib/schemas/commitment
 const commitmentSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
+    /**
+     * The primary this row belongs to.
+     *
+     * Every scoped query filters on it, so a primary reading their own data
+     * and an overseer reading the same primary's run one query with a
+     * different value. Indexed because it is in the predicate of essentially
+     * every read.
+     */
+    ownerId: { type: String, required: true, index: true },
+
     /** What is true when this is done. Required: an unverifiable commitment cannot be honoured. */
     outcome: { type: String, required: true, trim: true },
 

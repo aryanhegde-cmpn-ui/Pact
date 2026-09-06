@@ -9,6 +9,8 @@ export interface ResolvedSettings {
   dailyReviewAt: string;
   defaultLeadMinutes: number;
   disabledTypes: string[];
+  /** Whether the overseer may read free-text notes. Default false. */
+  shareNotesWithOverseer: boolean;
   /** Null until the first dispatch has run. */
   lastDispatchAt: Date | null;
 }
@@ -19,10 +21,10 @@ export interface ResolvedSettings {
  * Upserted rather than inserted-if-missing, so two concurrent first requests
  * cannot each create one.
  */
-export async function getSettings(): Promise<ResolvedSettings> {
+export async function getSettings(ownerId: string): Promise<ResolvedSettings> {
   const doc = await SettingsModel.findOneAndUpdate(
-    { key: 'singleton' },
-    { $setOnInsert: { ...DEFAULT_SETTINGS, updatedAt: new Date() } },
+    { ownerId },
+    { $setOnInsert: { ...DEFAULT_SETTINGS, ownerId, updatedAt: new Date() } },
     // The post-insert document, so a first read returns the defaults that were
     // just written rather than null.
     { upsert: true, returnDocument: 'after' },
@@ -34,16 +36,20 @@ export async function getSettings(): Promise<ResolvedSettings> {
     dailyReviewAt: doc?.dailyReviewAt ?? DEFAULT_SETTINGS.dailyReviewAt,
     defaultLeadMinutes: doc?.defaultLeadMinutes ?? DEFAULT_SETTINGS.defaultLeadMinutes,
     disabledTypes: doc?.disabledTypes ?? [],
+    shareNotesWithOverseer: doc?.shareNotesWithOverseer ?? false,
     lastDispatchAt: doc?.lastDispatchAt ?? null,
   };
 }
 
-export async function updateSettings(input: UpdateSettingsInput): Promise<ResolvedSettings> {
+export async function updateSettings(
+  input: UpdateSettingsInput,
+  ownerId: string,
+): Promise<ResolvedSettings> {
   await SettingsModel.updateOne(
-    { key: 'singleton' },
-    { $set: { ...input, updatedAt: new Date() } },
+    { ownerId },
+    { $set: { ...input, ownerId, updatedAt: new Date() } },
     { upsert: true },
   );
 
-  return getSettings();
+  return getSettings(ownerId);
 }

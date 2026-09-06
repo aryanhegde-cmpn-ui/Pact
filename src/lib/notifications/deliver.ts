@@ -23,11 +23,12 @@ export interface DeliveryReport {
   skippedResolved: number;
 }
 
-export async function deliverDue(now: Date = new Date()): Promise<DeliveryReport> {
+export async function deliverDue(ownerId: string, now: Date = new Date()): Promise<DeliveryReport> {
   const due = await NotificationModel.find({
     // Scoped to this channel. Without it, an in-app read would mark web-push
     // rows as sent without anything ever being pushed -- the notification
     // would simply vanish, with no error and no way to tell it had happened.
+    ownerId,
     channel: 'in-app',
     status: 'pending',
     scheduledFor: { $lte: now },
@@ -43,7 +44,7 @@ export async function deliverDue(now: Date = new Date()): Promise<DeliveryReport
     ...new Set(due.map((row) => row.commitmentId).filter(Boolean)),
   ] as string[];
   const commitments = await CommitmentModel.find(
-    { _id: { $in: commitmentIds } },
+    { _id: { $in: commitmentIds }, ownerId },
     { status: 1 },
   ).lean();
   const statusById = new Map(commitments.map((c) => [String(c._id), c.status]));
@@ -88,19 +89,19 @@ export async function deliverDue(now: Date = new Date()): Promise<DeliveryReport
   // trip each, not two hundred.
   if (sendIds.length > 0) {
     await NotificationModel.updateMany(
-      { _id: { $in: sendIds } },
+      { _id: { $in: sendIds }, ownerId },
       { $set: { status: 'sent', sentAt: now } },
     );
   }
   if (skipStaleIds.length > 0) {
     await NotificationModel.updateMany(
-      { _id: { $in: skipStaleIds } },
+      { _id: { $in: skipStaleIds }, ownerId },
       { $set: { status: 'skipped', skipReason: 'stale' } },
     );
   }
   if (skipResolvedIds.length > 0) {
     await NotificationModel.updateMany(
-      { _id: { $in: skipResolvedIds } },
+      { _id: { $in: skipResolvedIds }, ownerId },
       { $set: { status: 'skipped', skipReason: 'resolved' } },
     );
   }

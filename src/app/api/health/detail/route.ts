@@ -45,6 +45,8 @@ export async function GET(): Promise<Response> {
     );
   }
 
+  // Health detail reports on the caller's own scope, never the whole cluster.
+  const ownerId = session.user.ownerId ?? session.user.id;
   let userCount: number | null = null;
   let databaseError: string | null = null;
   let dispatch: {
@@ -60,7 +62,7 @@ export async function GET(): Promise<Response> {
     await connectToDatabase();
     userCount = await UserModel.countDocuments();
 
-    const settings = await getSettings();
+    const settings = await getSettings(ownerId);
     const minutesSince = settings.lastDispatchAt
       ? Math.floor((now.getTime() - settings.lastDispatchAt.getTime()) / 60_000)
       : null;
@@ -73,8 +75,9 @@ export async function GET(): Promise<Response> {
       // visible without noticing that notifications stopped arriving.
       stale: minutesSince !== null && minutesSince > DISPATCH_STALE_MINUTES,
       pushConfigured: isPushConfigured(),
-      subscriptions: await PushSubscriptionModel.countDocuments(),
+      subscriptions: await PushSubscriptionModel.countDocuments({ ownerId }),
       pendingPush: await NotificationModel.countDocuments({
+        ownerId,
         channel: 'web-push',
         status: 'pending',
         scheduledFor: { $lte: now },

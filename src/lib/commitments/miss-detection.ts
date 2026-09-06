@@ -30,6 +30,7 @@ interface MissCandidate {
  */
 export async function recordObservedMisses(
   commitments: readonly MissCandidate[],
+  ownerId: string,
   now: Date,
 ): Promise<number> {
   const missed = commitments.filter((c) => isMissed({ dueAt: c.dueAt, status: c.status }, now));
@@ -43,6 +44,7 @@ export async function recordObservedMisses(
         type: 'DEADLINE_MISSED',
         entityType: 'commitment',
         entityId: String(commitment._id),
+        ownerId,
         /**
          * The timestamp is the DEADLINE, never the moment of emission.
          *
@@ -88,7 +90,7 @@ export async function recordObservedMisses(
     .filter((commitment): commitment is MissCandidate => commitment !== null);
 
   await Promise.all(
-    newlyMissed.map((commitment) => cancelPendingForCommitment(String(commitment._id))),
+    newlyMissed.map((commitment) => cancelPendingForCommitment(String(commitment._id), ownerId)),
   );
 
   return results.filter((result) => result.appended).length;

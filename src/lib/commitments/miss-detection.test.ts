@@ -60,6 +60,7 @@ const { recordObservedMisses } = await import('@/lib/commitments/miss-detection'
 
 const DUE = new Date('2026-09-05T12:00:00.000Z');
 const NOW = new Date('2026-09-05T18:00:00.000Z');
+const OWNER = 'owner-1';
 
 beforeEach(() => {
   store.rows = [];
@@ -70,6 +71,7 @@ beforeEach(() => {
 describe('appendEvent', () => {
   it('appends an event', async () => {
     const result = await appendEvent({
+      ownerId: OWNER,
       type: 'COMMITMENT_CREATED',
       entityType: 'commitment',
       entityId: 'c1',
@@ -84,6 +86,7 @@ describe('appendEvent', () => {
   it('defaults the timestamp without silently dropping a supplied one', async () => {
     const ts = new Date('2026-01-01T00:00:00Z');
     await appendEvent({
+      ownerId: OWNER,
       type: 'COMMITMENT_CREATED',
       entityType: 'commitment',
       entityId: 'c1',
@@ -102,6 +105,7 @@ describe('appendEvent', () => {
       type: 'DEADLINE_MISSED',
       entityType: 'commitment',
       entityId: 'c1',
+      ownerId: OWNER,
       source: 'system',
       ts: DUE,
     } as const;
@@ -121,6 +125,7 @@ describe('appendEvent', () => {
 
     await expect(
       appendEvent({
+        ownerId: OWNER,
         type: 'DEADLINE_CHANGED',
         entityType: 'commitment',
         entityId: 'c1',
@@ -150,7 +155,7 @@ describe('lazy DEADLINE_MISSED under concurrent reads', () => {
   it('appends exactly once when many reads observe the same miss at once', async () => {
     // Ten simultaneous requests, as several serverless invocations would be.
     const results = await Promise.all(
-      Array.from({ length: 10 }, () => recordObservedMisses(missed, NOW)),
+      Array.from({ length: 10 }, () => recordObservedMisses(missed, OWNER, NOW)),
     );
 
     const deadlineMissed = store.rows.filter((row) => row.type === 'DEADLINE_MISSED');
@@ -163,15 +168,15 @@ describe('lazy DEADLINE_MISSED under concurrent reads', () => {
   });
 
   it('stays at one across repeated later reads', async () => {
-    await recordObservedMisses(missed, NOW);
-    await recordObservedMisses(missed, new Date('2026-09-06T09:00:00Z'));
-    await recordObservedMisses(missed, new Date('2026-09-07T09:00:00Z'));
+    await recordObservedMisses(missed, OWNER, NOW);
+    await recordObservedMisses(missed, OWNER, new Date('2026-09-06T09:00:00Z'));
+    await recordObservedMisses(missed, OWNER, new Date('2026-09-07T09:00:00Z'));
 
     expect(store.rows.filter((r) => r.type === 'DEADLINE_MISSED')).toHaveLength(1);
   });
 
   it('timestamps the event at the DEADLINE, not when a read noticed', async () => {
-    await recordObservedMisses(missed, NOW);
+    await recordObservedMisses(missed, OWNER, NOW);
 
     // Otherwise the log would say the miss happened whenever the user next
     // opened the app, and the behaviour engine would read the wrong day.
@@ -186,6 +191,7 @@ describe('lazy DEADLINE_MISSED under concurrent reads', () => {
         { _id: 'c2', dueAt: DUE, status: 'done' },
         { _id: 'c3', dueAt: DUE, status: 'abandoned' },
       ],
+      OWNER,
       NOW,
     );
 
@@ -199,6 +205,7 @@ describe('lazy DEADLINE_MISSED under concurrent reads', () => {
         { _id: 'c1', dueAt: DUE, status: 'pending' },
         { _id: 'c2', dueAt: DUE, status: 'in-progress' },
       ],
+      OWNER,
       NOW,
     );
 
@@ -215,12 +222,14 @@ describe('a deadline that moves can be missed more than once', () => {
     // Missed against the original deadline.
     await recordObservedMisses(
       [{ _id: 'c1', dueAt: firstDeadline, status: 'pending' }],
+      OWNER,
       new Date('2026-09-05T18:00:00Z'),
     );
 
     // Postponed, then missed again against the new one.
     await recordObservedMisses(
       [{ _id: 'c1', dueAt: secondDeadline, status: 'pending' }],
+      OWNER,
       new Date('2026-09-08T18:00:00Z'),
     );
 
@@ -241,9 +250,9 @@ describe('a deadline that moves can be missed more than once', () => {
     const commitment = [{ _id: 'c1', dueAt: deadline, status: 'pending' as const }];
 
     await Promise.all([
-      recordObservedMisses(commitment, new Date('2026-09-05T18:00:00Z')),
-      recordObservedMisses(commitment, new Date('2026-09-06T09:00:00Z')),
-      recordObservedMisses(commitment, new Date('2026-09-07T09:00:00Z')),
+      recordObservedMisses(commitment, OWNER, new Date('2026-09-05T18:00:00Z')),
+      recordObservedMisses(commitment, OWNER, new Date('2026-09-06T09:00:00Z')),
+      recordObservedMisses(commitment, OWNER, new Date('2026-09-07T09:00:00Z')),
     ]);
 
     expect(store.rows.filter((row) => row.type === 'DEADLINE_MISSED')).toHaveLength(1);
@@ -259,6 +268,7 @@ describe('a deadline that moves can be missed more than once', () => {
     for (const dueAt of deadlines) {
       await recordObservedMisses(
         [{ _id: 'c1', dueAt, status: 'pending' }],
+        OWNER,
         new Date(dueAt.getTime() + 6 * 3_600_000),
       );
     }
@@ -284,7 +294,7 @@ describe('miss events are timestamped at the deadline', () => {
     const dueAt = new Date('2026-09-05T12:00:00.000Z');
     const noticedAt = new Date('2026-09-05T18:47:13.000Z');
 
-    await recordObservedMisses([{ _id: 'c1', dueAt, status: 'pending' }], noticedAt);
+    await recordObservedMisses([{ _id: 'c1', dueAt, status: 'pending' }], OWNER, noticedAt);
 
     const [event] = store.rows;
     expect(event?.ts).toEqual(dueAt);
@@ -297,9 +307,9 @@ describe('miss events are timestamped at the deadline', () => {
 
     // Three reads, hours apart. Deduplication depends on all three producing
     // the same key.
-    await recordObservedMisses(commitment, new Date('2026-09-05T13:00:00Z'));
-    await recordObservedMisses(commitment, new Date('2026-09-06T09:00:00Z'));
-    await recordObservedMisses(commitment, new Date('2026-09-09T22:30:00Z'));
+    await recordObservedMisses(commitment, OWNER, new Date('2026-09-05T13:00:00Z'));
+    await recordObservedMisses(commitment, OWNER, new Date('2026-09-06T09:00:00Z'));
+    await recordObservedMisses(commitment, OWNER, new Date('2026-09-09T22:30:00Z'));
 
     expect(store.rows).toHaveLength(1);
     expect(store.rows[0]?.ts).toEqual(dueAt);
@@ -309,7 +319,7 @@ describe('miss events are timestamped at the deadline', () => {
     const dueAt = new Date('2026-09-05T12:00:00.000Z');
     const noticedAt = new Date('2026-09-05T18:47:13.000Z');
 
-    await recordObservedMisses([{ _id: 'c1', dueAt, status: 'pending' }], noticedAt);
+    await recordObservedMisses([{ _id: 'c1', dueAt, status: 'pending' }], OWNER, noticedAt);
 
     // Not lost -- just kept out of the key, where it would break uniqueness.
     expect((store.rows[0]?.payload as { noticedAt: string }).noticedAt).toBe(
@@ -322,6 +332,7 @@ describe('an unanswered miss silences its notifications', () => {
   it('cancels pending notifications when a miss is first observed', async () => {
     await recordObservedMisses(
       [{ _id: 'c1', dueAt: DUE, status: 'pending' }],
+      OWNER,
       new Date('2026-09-05T18:00:00Z'),
     );
 
@@ -333,8 +344,8 @@ describe('an unanswered miss silences its notifications', () => {
   it('does not re-cancel on subsequent reads of the same miss', async () => {
     const commitment = [{ _id: 'c1', dueAt: DUE, status: 'pending' as const }];
 
-    await recordObservedMisses(commitment, new Date('2026-09-05T18:00:00Z'));
-    await recordObservedMisses(commitment, new Date('2026-09-06T09:00:00Z'));
+    await recordObservedMisses(commitment, OWNER, new Date('2026-09-05T18:00:00Z'));
+    await recordObservedMisses(commitment, OWNER, new Date('2026-09-06T09:00:00Z'));
 
     // Only the newly-observed miss cancels; the duplicate append is a no-op.
     expect(store.cancelled).toEqual(['c1']);
@@ -343,6 +354,7 @@ describe('an unanswered miss silences its notifications', () => {
   it('cancels nothing when nothing was missed', async () => {
     await recordObservedMisses(
       [{ _id: 'c1', dueAt: new Date('2026-12-01T00:00:00Z'), status: 'pending' }],
+      OWNER,
       NOW,
     );
 

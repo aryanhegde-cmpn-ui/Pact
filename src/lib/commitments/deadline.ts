@@ -27,6 +27,7 @@ import type { EventSource } from '@/lib/schemas/event';
 export async function changeDeadline(
   commitmentId: string,
   input: ChangeDeadlineInput,
+  ownerId: string,
   now: Date = new Date(),
   /**
    * Who moved it. Defaults to the user, and exists so synthetic history can go
@@ -37,7 +38,7 @@ export async function changeDeadline(
 ): Promise<{ previousDueAt: Date; newDueAt: Date }> {
   const { newDueAt, reason, category } = changeDeadlineSchema.parse(input);
 
-  const existing = await CommitmentModel.findById(commitmentId).lean();
+  const existing = await CommitmentModel.findOne({ _id: commitmentId, ownerId }).lean();
   if (!existing) {
     throw new DeadlineError('No such commitment.');
   }
@@ -47,7 +48,7 @@ export async function changeDeadline(
     throw new DeadlineError('This commitment is already closed; its deadline cannot move.');
   }
 
-  const history = await readEntityEvents(commitmentId);
+  const history = await readEntityEvents(commitmentId, ownerId);
 
   /**
    * AN UNRECKONED MISS CANNOT BE RESCHEDULED.
@@ -89,7 +90,7 @@ export async function changeDeadline(
     return { previousDueAt, newDueAt };
   }
 
-  await CommitmentModel.updateOne({ _id: commitmentId }, { $set: { dueAt: newDueAt } });
+  await CommitmentModel.updateOne({ _id: commitmentId, ownerId }, { $set: { dueAt: newDueAt } });
 
   const priorChanges = history.filter((event) => event.type === 'DEADLINE_CHANGED').length;
 
@@ -97,6 +98,7 @@ export async function changeDeadline(
     type: 'DEADLINE_CHANGED',
     entityType: 'commitment',
     entityId: commitmentId,
+    ownerId,
     ts: now,
     source,
     payload: {
@@ -145,8 +147,9 @@ export async function changeDeadline(
       priority: existing.priority,
       leadMinutes: existing.leadMinutes ?? null,
     },
-    await getSettings(),
+    await getSettings(ownerId),
     getEnv().APP_TIMEZONE,
+    ownerId,
     now,
   );
 

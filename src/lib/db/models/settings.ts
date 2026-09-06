@@ -13,7 +13,14 @@ import { DEFAULT_SETTINGS } from '@/lib/schemas/notification';
  */
 const settingsSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true, unique: true, default: 'singleton' },
+    /**
+     * One settings document per primary.
+     *
+     * Was a fixed 'singleton' discriminator when there was one user. Now keyed
+     * on the owner, still unique, so a concurrent upsert cannot create a second
+     * row and leave the app reading whichever it happened to get.
+     */
+    ownerId: { type: String, required: true, unique: true, index: true },
     quietHoursStart: { type: String, required: true, default: DEFAULT_SETTINGS.quietHoursStart },
     quietHoursEnd: { type: String, required: true, default: DEFAULT_SETTINGS.quietHoursEnd },
     dailyReviewAt: { type: String, required: true, default: DEFAULT_SETTINGS.dailyReviewAt },
@@ -22,6 +29,16 @@ const settingsSchema = new mongoose.Schema(
       required: true,
       default: DEFAULT_SETTINGS.defaultLeadMinutes,
     },
+    /**
+     * Whether the overseer may read free-text notes.
+     *
+     * Default false, deliberately. Structured categories are always visible --
+     * that is where the accountability value is. The free text is where the
+     * primary is honest with themselves, and they will be less honest if they
+     * know it is read.
+     */
+    shareNotesWithOverseer: { type: Boolean, required: true, default: false },
+
     /**
      * Per-type push toggles. Absent means enabled -- a type added later should
      * work without a settings migration.

@@ -98,10 +98,12 @@ const { materialiseRange } = await import('./materialise');
 
 const IST = 'Asia/Kolkata';
 const NOW = new Date('2026-09-05T06:00:00.000Z');
+const OWNER = 'owner-1';
 
 function dailySeries(overrides: Record<string, unknown> = {}) {
   return {
     _id: 's1',
+    ownerId: OWNER,
     title: 'Morning review',
     outcome: 'Tomorrow is planned',
     priority: 'important',
@@ -129,7 +131,7 @@ beforeEach(() => {
 
 describe('materialiseRange', () => {
   it('creates occurrences for the window plus a 14-day lookahead', async () => {
-    const result = await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    const result = await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     // One requested day + 14 days of lookahead.
     expect(result.created).toBe(15);
@@ -137,7 +139,7 @@ describe('materialiseRange', () => {
   });
 
   it('resolves the rule time to a UTC instant on the right local date', async () => {
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     const first = store.commitments.find((c) => c.occurrenceDate === '2026-09-05');
     // 09:00 IST is 03:30Z.
@@ -145,7 +147,7 @@ describe('materialiseRange', () => {
   });
 
   it('sets originalDueAt equal to dueAt at birth', async () => {
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     for (const c of store.commitments) {
       expect((c.originalDueAt as Date).getTime()).toBe((c.dueAt as Date).getTime());
@@ -153,8 +155,8 @@ describe('materialiseRange', () => {
   });
 
   it('is idempotent: running twice creates nothing the second time', async () => {
-    const first = await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
-    const second = await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    const first = await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
+    const second = await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     expect(first.created).toBe(15);
     expect(second.created).toBe(0);
@@ -165,7 +167,9 @@ describe('materialiseRange', () => {
     // Five simultaneous requests for the same window, as several serverless
     // invocations would be.
     const results = await Promise.all(
-      Array.from({ length: 5 }, () => materialiseRange('2026-09-05', '2026-09-05', IST, NOW)),
+      Array.from({ length: 5 }, () =>
+        materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW),
+      ),
     );
 
     const keys = store.commitments.map((c) => `${c.seriesId}:${c.occurrenceDate}`);
@@ -179,7 +183,7 @@ describe('materialiseRange', () => {
   });
 
   it('logs CREATED and DEADLINE_SET for each occurrence, sourced as system', async () => {
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     const created = store.events.filter((e) => e.type === 'COMMITMENT_CREATED');
     const deadlines = store.events.filter((e) => e.type === 'DEADLINE_SET');
@@ -195,14 +199,14 @@ describe('materialiseRange', () => {
     // The query filters on status, so an ended series is simply not returned.
     store.series = [];
 
-    const result = await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    const result = await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
     expect(result.created).toBe(0);
   });
 
   it('does not create occurrences past the series end date', async () => {
     store.series = [dailySeries({ endDate: '2026-09-07' })];
 
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     const dates = store.commitments.map((c) => c.occurrenceDate).sort();
     expect(dates).toEqual(['2026-09-05', '2026-09-06', '2026-09-07']);
@@ -211,7 +215,7 @@ describe('materialiseRange', () => {
   it('does not backfill before the requested window', async () => {
     // The series started on the 1st, but a query for the 5th must not
     // manufacture history for days nobody asked about.
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     const earliest = store.commitments.map((c) => c.occurrenceDate as string).sort()[0];
     expect(earliest).toBe('2026-09-05');
@@ -220,7 +224,7 @@ describe('materialiseRange', () => {
 
 describe('series occurrences enqueue as they materialise', () => {
   it('queues notifications for every occurrence it creates', async () => {
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     // Three per occurrence, on each of the two channels.
     expect(store.commitments).toHaveLength(15);
@@ -230,7 +234,7 @@ describe('series occurrences enqueue as they materialise', () => {
   });
 
   it('schedules them against each occurrence own deadline', async () => {
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     const first = store.commitments.find((c) => c.occurrenceDate === '2026-09-05');
     const due = (first?.dueAt as Date).getTime();
@@ -248,10 +252,10 @@ describe('series occurrences enqueue as they materialise', () => {
   });
 
   it('does not re-enqueue on a second materialisation pass', async () => {
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
     const after = store.notifications.length;
 
-    await materialiseRange('2026-09-05', '2026-09-05', IST, NOW);
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
 
     // Nothing new was created, so nothing new was queued.
     expect(store.notifications).toHaveLength(after);

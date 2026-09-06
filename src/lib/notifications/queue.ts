@@ -123,6 +123,7 @@ export async function enqueueForCommitment(
   commitment: CommitmentForQueue,
   settings: ResolvedSettings,
   timeZone: string,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<EnqueueResult> {
   const quiet = { start: settings.quietHoursStart, end: settings.quietHoursEnd };
@@ -144,11 +145,18 @@ export async function enqueueForCommitment(
             : undefined,
       };
 
-      const key = { commitmentId: commitment.id, type: planned.type, scheduledFor, channel };
+      const key = {
+        commitmentId: commitment.id,
+        type: planned.type,
+        scheduledFor,
+        channel,
+        ownerId,
+      };
 
       try {
         await NotificationModel.create({
           ...key,
+          ownerId,
           status: 'pending',
           sentAt: null,
           readAt: null,
@@ -163,7 +171,7 @@ export async function enqueueForCommitment(
         // has already been sent -- re-sending something the user has already
         // seen would be worse than not sending it at all.
         const result = await NotificationModel.updateOne(
-          { ...key, status: { $ne: 'sent' } },
+          { ...key, ownerId, status: { $ne: 'sent' } },
           { $set: { status: 'pending', sentAt: null, skipReason: null, payload } },
         );
 
@@ -182,9 +190,12 @@ export async function enqueueForCommitment(
  * Only `pending` rows: something already sent is a record of what the user was
  * told, and rewriting it would make the queue lie about its own history.
  */
-export async function cancelPendingForCommitment(commitmentId: string): Promise<number> {
+export async function cancelPendingForCommitment(
+  commitmentId: string,
+  ownerId: string,
+): Promise<number> {
   const result = await NotificationModel.updateMany(
-    { commitmentId, status: 'pending' },
+    { commitmentId, ownerId, status: 'pending' },
     { $set: { status: 'cancelled' } },
   );
 
@@ -204,10 +215,11 @@ export async function reenqueueForCommitment(
   commitment: CommitmentForQueue,
   settings: ResolvedSettings,
   timeZone: string,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<{ cancelled: number } & EnqueueResult> {
-  const cancelled = await cancelPendingForCommitment(commitment.id);
-  const enqueued = await enqueueForCommitment(commitment, settings, timeZone, now);
+  const cancelled = await cancelPendingForCommitment(commitment.id, ownerId);
+  const enqueued = await enqueueForCommitment(commitment, settings, timeZone, ownerId, now);
 
   return { cancelled, ...enqueued };
 }

@@ -130,6 +130,7 @@ function toView(
  */
 async function eventsByEntity(
   ids: string[],
+  ownerId: string,
 ): Promise<Map<string, { ts: Date; type: string; payload?: Record<string, unknown> }[]>> {
   const grouped = new Map<
     string,
@@ -141,6 +142,7 @@ async function eventsByEntity(
     // Only the types derived state actually reads.
     {
       entityId: { $in: ids },
+      ownerId,
       type: { $in: ['RECKONING_SUBMITTED', 'DEADLINE_CHANGED', 'RECOVERY_ACTION_SELECTED'] },
     },
     { entityId: 1, ts: 1, type: 1, payload: 1 },
@@ -172,6 +174,7 @@ function byUrgency(a: CommitmentView, b: CommitmentView): number {
 
 export async function createCommitment(
   input: CreateCommitmentInput,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<CommitmentView> {
   const data = createCommitmentSchema.parse(input);
@@ -193,6 +196,7 @@ export async function createCommitment(
     completedAt: null,
     notes: data.notes ?? '',
     leadMinutes: data.leadMinutes ?? null,
+    ownerId,
   });
 
   const entityId = String(doc._id);
@@ -201,6 +205,7 @@ export async function createCommitment(
     type: 'COMMITMENT_CREATED',
     entityType: 'commitment',
     entityId,
+    ownerId,
     ts: now,
     source: 'user',
     payload: {
@@ -217,6 +222,7 @@ export async function createCommitment(
     type: 'DEADLINE_SET',
     entityType: 'commitment',
     entityId,
+    ownerId,
     ts: now,
     source: 'user',
     payload: { dueAt: data.dueAt.toISOString() },
@@ -233,8 +239,9 @@ export async function createCommitment(
       priority: data.priority,
       leadMinutes: data.leadMinutes ?? null,
     },
-    await getSettings(),
+    await getSettings(ownerId),
     getEnv().APP_TIMEZONE,
+    ownerId,
     now,
   );
 
@@ -251,10 +258,11 @@ export async function listByDateRange(
   from: DateKey,
   to: DateKey,
   timeZone: string,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<CommitmentView[]> {
   await connectToDatabase();
-  await materialiseRange(from, to, timeZone, now);
+  await materialiseRange(from, to, timeZone, ownerId, now);
 
   // The window is local dates; the stored field is a UTC instant, so the
   // boundaries have to be converted rather than compared as strings.
@@ -262,6 +270,7 @@ export async function listByDateRange(
   const endInstant = new Date(`${addDays(to, 1)}T00:00:00.000Z`);
   // Widen by a day either side to cover offsets, then filter precisely below.
   const rows = await CommitmentModel.find({
+    ownerId,
     dueAt: {
       $gte: new Date(startInstant.getTime() - 86_400_000),
       $lt: new Date(endInstant.getTime() + 86_400_000),
@@ -275,38 +284,52 @@ export async function listByDateRange(
     return key >= from && key <= to;
   });
 
-  await recordObservedMisses(inWindow, now);
+  await recordObservedMisses(inWindow, ownerId, now);
 
-  const events = await eventsByEntity(inWindow.map((row) => String(row._id)));
+  const events = await eventsByEntity(
+    inWindow.map((row) => String(row._id)),
+    ownerId,
+  );
 
   return inWindow.map((row) => toView(row, now, events.get(String(row._id)) ?? [])).sort(byUrgency);
 }
 
 /** Open commitments whose deadline has already passed, regardless of window. */
-export async function listOverdue(now: Date = new Date()): Promise<CommitmentView[]> {
+export async function listOverdue(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<CommitmentView[]> {
   await connectToDatabase();
 
   const rows = await CommitmentModel.find({
+    ownerId,
     status: { $in: ['pending', 'in-progress'] },
     dueAt: { $lt: now },
   })
     .sort({ dueAt: 1 })
     .lean();
 
-  await recordObservedMisses(rows, now);
+  await recordObservedMisses(rows, ownerId, now);
 
-  const events = await eventsByEntity(rows.map((row) => String(row._id)));
+  const events = await eventsByEntity(
+    rows.map((row) => String(row._id)),
+    ownerId,
+  );
 
   return rows.map((row) => toView(row, now, events.get(String(row._id)) ?? [])).sort(byUrgency);
 }
 
-export async function getCommitment(id: string, now: Date = new Date()): Promise<CommitmentView> {
+export async function getCommitment(
+  id: string,
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<CommitmentView> {
   await connectToDatabase();
-  const row = await CommitmentModel.findById(id).lean();
+  const row = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   if (!row) throw new CommitmentError('No such commitment.', 404);
 
-  await recordObservedMisses([row], now);
-  const events = await eventsByEntity([String(row._id)]);
+  await recordObservedMisses([row], ownerId, now);
+  const events = await eventsByEntity([String(row._id)], ownerId);
 
   return toView(row, now, events.get(String(row._id)) ?? []);
 }
@@ -321,57 +344,68 @@ export async function getCommitment(id: string, now: Date = new Date()): Promise
 export async function updateCommitment(
   id: string,
   input: UpdateCommitmentInput,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<CommitmentView> {
   const data = updateCommitmentSchema.parse(input);
   await connectToDatabase();
 
-  const existing = await CommitmentModel.findById(id).lean();
+  const existing = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   if (!existing) throw new CommitmentError('No such commitment.', 404);
 
-  await CommitmentModel.updateOne({ _id: id }, { $set: data });
+  await CommitmentModel.updateOne({ _id: id, ownerId }, { $set: data });
 
   await appendEvent({
     type: 'COMMITMENT_EDITED',
     entityType: 'commitment',
     entityId: id,
+    ownerId,
     ts: now,
     source: 'user',
     payload: { changed: Object.keys(data), values: data },
   });
 
-  const updated = await CommitmentModel.findById(id).lean();
+  const updated = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   return toView(updated!, now);
 }
 
-export async function startCommitment(id: string, now: Date = new Date()): Promise<CommitmentView> {
+export async function startCommitment(
+  id: string,
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<CommitmentView> {
   await connectToDatabase();
-  const existing = await CommitmentModel.findById(id).lean();
+  const existing = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   if (!existing) throw new CommitmentError('No such commitment.', 404);
   if (existing.status !== 'pending') {
     throw new CommitmentError('Only a pending commitment can be started.');
   }
 
-  await CommitmentModel.updateOne({ _id: id }, { $set: { status: 'in-progress', startedAt: now } });
+  await CommitmentModel.updateOne(
+    { _id: id, ownerId },
+    { $set: { status: 'in-progress', startedAt: now } },
+  );
   await appendEvent({
     type: 'COMMITMENT_STARTED',
     entityType: 'commitment',
     entityId: id,
+    ownerId,
     ts: now,
     source: 'user',
     payload: {},
   });
 
-  const updated = await CommitmentModel.findById(id).lean();
+  const updated = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   return toView(updated!, now);
 }
 
 export async function completeCommitment(
   id: string,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<CommitmentView> {
   await connectToDatabase();
-  const existing = await CommitmentModel.findById(id).lean();
+  const existing = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   if (!existing) throw new CommitmentError('No such commitment.', 404);
   if (existing.status === 'done') return toView(existing, now);
   if (existing.status === 'abandoned') {
@@ -381,14 +415,18 @@ export async function completeCommitment(
   // Recorded BEFORE the status change closes the window on it, so a commitment
   // completed after its deadline still carries the miss in its history rather
   // than looking like it was always on time.
-  await recordObservedMisses([existing], now);
+  await recordObservedMisses([existing], ownerId, now);
 
-  await CommitmentModel.updateOne({ _id: id }, { $set: { status: 'done', completedAt: now } });
+  await CommitmentModel.updateOne(
+    { _id: id, ownerId },
+    { $set: { status: 'done', completedAt: now } },
+  );
 
   await appendEvent({
     type: 'COMMITMENT_COMPLETED',
     entityType: 'commitment',
     entityId: id,
+    ownerId,
     ts: now,
     source: 'user',
     payload: {
@@ -408,31 +446,33 @@ export async function completeCommitment(
   // Nothing further to ask about something that is finished. Leaving these
   // queued produces an ACCOUNTABILITY_CHECK for work already done, which is
   // exactly the kind of wrong that teaches someone to ignore the app.
-  await cancelPendingForCommitment(id);
+  await cancelPendingForCommitment(id, ownerId);
 
-  const updated = await CommitmentModel.findById(id).lean();
+  const updated = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   return toView(updated!, now);
 }
 
 export async function abandonCommitment(
   id: string,
   reason: string,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<CommitmentView> {
   await connectToDatabase();
-  const existing = await CommitmentModel.findById(id).lean();
+  const existing = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   if (!existing) throw new CommitmentError('No such commitment.', 404);
   if (existing.status === 'done') {
     throw new CommitmentError('This commitment is already complete.');
   }
 
-  await recordObservedMisses([existing], now);
-  await CommitmentModel.updateOne({ _id: id }, { $set: { status: 'abandoned' } });
+  await recordObservedMisses([existing], ownerId, now);
+  await CommitmentModel.updateOne({ _id: id, ownerId }, { $set: { status: 'abandoned' } });
 
   await appendEvent({
     type: 'COMMITMENT_ABANDONED',
     entityType: 'commitment',
     entityId: id,
+    ownerId,
     ts: now,
     source: 'user',
     // Abandoning is a legitimate decision and is recorded as one. It is not a
@@ -443,9 +483,9 @@ export async function abandonCommitment(
 
   // Abandoning is a decision, and the decision has been made. Continuing to
   // ask about it would be nagging, not accountability.
-  await cancelPendingForCommitment(id);
+  await cancelPendingForCommitment(id, ownerId);
 
-  const updated = await CommitmentModel.findById(id).lean();
+  const updated = await CommitmentModel.findOne({ _id: id, ownerId }).lean();
   return toView(updated!, now);
 }
 
@@ -456,17 +496,23 @@ export async function abandonCommitment(
  * that can be dismissed without answering would be a notification badge, which
  * is the opposite of the point.
  */
-export async function countNeedsReckoning(now: Date = new Date()): Promise<number> {
+export async function countNeedsReckoning(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<number> {
   await connectToDatabase();
 
   const open = await CommitmentModel.find(
-    { status: { $in: OPEN_STATUSES }, dueAt: { $lt: now } },
+    { ownerId, status: { $in: OPEN_STATUSES }, dueAt: { $lt: now } },
     { dueAt: 1, status: 1 },
   ).lean();
 
   if (open.length === 0) return 0;
 
-  const events = await eventsByEntity(open.map((row) => String(row._id)));
+  const events = await eventsByEntity(
+    open.map((row) => String(row._id)),
+    ownerId,
+  );
 
   return open.filter((row) =>
     needsReckoning(
@@ -478,17 +524,24 @@ export async function countNeedsReckoning(now: Date = new Date()): Promise<numbe
 }
 
 /** Every commitment awaiting a reckoning, most overdue first. */
-export async function listNeedsReckoning(now: Date = new Date()): Promise<CommitmentView[]> {
+export async function listNeedsReckoning(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<CommitmentView[]> {
   await connectToDatabase();
 
   const open = await CommitmentModel.find({
+    ownerId,
     status: { $in: OPEN_STATUSES },
     dueAt: { $lt: now },
   })
     .sort({ dueAt: 1 })
     .lean();
 
-  const events = await eventsByEntity(open.map((row) => String(row._id)));
+  const events = await eventsByEntity(
+    open.map((row) => String(row._id)),
+    ownerId,
+  );
 
   return open
     .map((row) => toView(row, now, events.get(String(row._id)) ?? []))

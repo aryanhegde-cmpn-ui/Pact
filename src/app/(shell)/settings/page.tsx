@@ -1,4 +1,7 @@
 import { NotificationSettings } from '@/components/settings/notification-settings';
+import { redirect } from 'next/navigation';
+
+import { currentActor } from '@/lib/api/guard';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getSettings } from '@/lib/notifications/settings';
 
@@ -7,7 +10,10 @@ export const metadata = { title: 'Settings' };
 
 export default async function SettingsPage(): Promise<React.JSX.Element> {
   await connectToDatabase();
-  const settings = await getSettings();
+  const actor = await currentActor();
+  if (!actor) redirect('/');
+
+  const settings = await getSettings(actor.ownerId);
 
   return (
     <div className="flex flex-col gap-lg">
@@ -23,6 +29,7 @@ export default async function SettingsPage(): Promise<React.JSX.Element> {
           dailyReviewAt: settings.dailyReviewAt,
           defaultLeadMinutes: settings.defaultLeadMinutes,
           disabledTypes: settings.disabledTypes,
+          shareNotesWithOverseer: settings.shareNotesWithOverseer,
         }}
       />
     </div>

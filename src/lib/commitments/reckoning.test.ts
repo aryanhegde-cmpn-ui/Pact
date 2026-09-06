@@ -24,11 +24,23 @@ vi.mock('@/lib/env', () => ({
 
 vi.mock('@/lib/db/models/commitment', () => ({
   CommitmentModel: {
-    findById: (id: string) => ({
-      lean: async () => store.commitments.find((c) => String(c._id) === String(id)) ?? null,
+    findOne: (query: { _id: string; ownerId?: string }) => ({
+      lean: async () =>
+        store.commitments.find(
+          (c) =>
+            String(c._id) === String(query._id) &&
+            (query.ownerId === undefined || c.ownerId === query.ownerId),
+        ) ?? null,
     }),
-    updateOne: async (filter: { _id: string }, update: { $set: Record<string, unknown> }) => {
-      const row = store.commitments.find((c) => String(c._id) === String(filter._id));
+    updateOne: async (
+      filter: { _id: string; ownerId?: string },
+      update: { $set: Record<string, unknown> },
+    ) => {
+      const row = store.commitments.find(
+        (c) =>
+          String(c._id) === String(filter._id) &&
+          (filter.ownerId === undefined || c.ownerId === filter.ownerId),
+      );
       if (row) Object.assign(row, update.$set);
       return { modifiedCount: row ? 1 : 0 };
     },
@@ -55,7 +67,7 @@ vi.mock('@/lib/db/events', () => ({
     store.events.push({ ...event, ts });
     return { appended: true, type: event.type };
   },
-  readEntityEvents: async (entityId: string) =>
+  readEntityEvents: async (entityId: string, _ownerId?: string) =>
     store.events
       .filter((e) => e.entityId === entityId)
       .map((e) => ({
@@ -82,12 +94,13 @@ vi.mock('@/lib/notifications/queue', () => ({
 }));
 
 vi.mock('@/lib/notifications/settings', () => ({
-  getSettings: async () => ({
+  getSettings: async (_ownerId?: string) => ({
     quietHoursStart: '00:00',
     quietHoursEnd: '07:00',
     dailyReviewAt: '07:30',
     defaultLeadMinutes: 30,
     disabledTypes: [],
+    shareNotesWithOverseer: false,
     lastDispatchAt: null,
   }),
 }));
@@ -97,10 +110,13 @@ const { changeDeadline } = await import('./deadline');
 
 const DUE = new Date('2026-09-05T12:00:00.000Z');
 const NOW = new Date('2026-09-05T18:00:00.000Z');
+/** Every scoped query filters on this. */
+const OWNER = 'owner-1';
 
 function seedCommitment(overrides: Record<string, unknown> = {}) {
   store.commitments.push({
     _id: 'c1',
+    ownerId: OWNER,
     title: 'Ship the report',
     outcome: 'The report is sent to Priya',
     dueAt: DUE,
@@ -130,6 +146,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
       changeDeadline(
         'c1',
         { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'later', category: 'underestimated' },
+        OWNER,
         NOW,
       ),
     ).rejects.toThrow(/not been reckoned with/);
@@ -140,6 +157,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
       await changeDeadline(
         'c1',
         { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'later', category: 'avoidance' },
+        OWNER,
         NOW,
       );
     } catch (error) {
@@ -155,6 +173,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
         reason: 'underestimated',
         recovery: { action: 'reduce-scope', newOutcome: 'A draft exists', newEstimateMinutes: 30 },
       },
+      OWNER,
       NOW,
     );
 
@@ -166,6 +185,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
           reason: 'replanned',
           category: 'deliberate-replan',
         },
+        OWNER,
         NOW,
       ),
     ).resolves.toBeDefined();
@@ -186,6 +206,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
           reason: 'replan',
           category: 'deliberate-replan',
         },
+        OWNER,
         NOW,
       ),
     ).resolves.toBeDefined();
@@ -199,6 +220,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
         reason: 'forgot',
         recovery: { action: 'schedule-start-session', startAt: NOW },
       },
+      OWNER,
       NOW,
     );
 
@@ -206,6 +228,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
     await changeDeadline(
       'c1',
       { newDueAt: second, reason: 'replan', category: 'deliberate-replan' },
+      OWNER,
       NOW,
     );
 
@@ -215,6 +238,7 @@ describe('an unreckoned miss cannot be rescheduled', () => {
       changeDeadline(
         'c1',
         { newDueAt: new Date('2026-09-12T12:00:00Z'), reason: 'again', category: 'avoidance' },
+        OWNER,
         later,
       ),
     ).rejects.toThrow(/not been reckoned with/);
@@ -225,7 +249,7 @@ describe('step 1 — it was actually done, late', () => {
   it('records the REAL completion time, not the submission time', async () => {
     const actuallyFinished = new Date('2026-09-05T14:30:00.000Z');
 
-    await submitReckoning('c1', { completed: true, completedAt: actuallyFinished }, NOW);
+    await submitReckoning('c1', { completed: true, completedAt: actuallyFinished }, OWNER, NOW);
 
     expect(commitment()?.completedAt).toEqual(actuallyFinished);
     const completion = eventsOfType('COMMITMENT_COMPLETED')[0];
@@ -236,6 +260,7 @@ describe('step 1 — it was actually done, late', () => {
     await submitReckoning(
       'c1',
       { completed: true, completedAt: new Date('2026-09-05T14:30:00.000Z') },
+      OWNER,
       NOW,
     );
 
@@ -246,14 +271,14 @@ describe('step 1 — it was actually done, late', () => {
   });
 
   it('marks it done and stops its notifications', async () => {
-    await submitReckoning('c1', { completed: true }, NOW);
+    await submitReckoning('c1', { completed: true }, OWNER, NOW);
 
     expect(commitment()?.status).toBe('done');
     expect(store.cancelled).toContain('c1');
   });
 
   it('needs no reason or recovery when it was completed', async () => {
-    await expect(submitReckoning('c1', { completed: true }, NOW)).resolves.toMatchObject({
+    await expect(submitReckoning('c1', { completed: true }, OWNER, NOW)).resolves.toMatchObject({
       recorded: true,
     });
   });
@@ -272,6 +297,7 @@ describe('step 3 — every recovery produces a system effect', () => {
           newEstimateMinutes: 25,
         },
       },
+      OWNER,
       NOW,
     );
 
@@ -302,6 +328,7 @@ describe('step 3 — every recovery produces a system effect', () => {
           ],
         },
       },
+      OWNER,
       NOW,
     );
 
@@ -321,6 +348,7 @@ describe('step 3 — every recovery produces a system effect', () => {
         reason: 'too-vague',
         recovery: { action: 'define-next-action', nextAction: 'List the three sections' },
       },
+      OWNER,
       NOW,
     );
 
@@ -339,6 +367,7 @@ describe('step 3 — every recovery produces a system effect', () => {
           startingMinutes: 20,
         },
       },
+      OWNER,
       NOW,
     );
 
@@ -357,6 +386,7 @@ describe('step 3 — every recovery produces a system effect', () => {
         reason: 'avoided',
         recovery: { action: 'schedule-start-session', startAt: new Date('2026-09-05T19:00:00Z') },
       },
+      OWNER,
       NOW,
     );
 
@@ -376,6 +406,7 @@ describe('step 3 — every recovery produces a system effect', () => {
         reason: 'waiting-on-someone',
         recovery: { action: 'mark-blocked', blockedOn: 'Priya', followUpDate: followUp },
       },
+      OWNER,
       NOW,
     );
 
@@ -398,6 +429,7 @@ describe('step 3 — every recovery produces a system effect', () => {
           newOutcome: 'A serviceable draft is sent, unpolished',
         },
       },
+      OWNER,
       NOW,
     );
 
@@ -412,6 +444,7 @@ describe('step 3 — every recovery produces a system effect', () => {
         reason: 'not-important',
         recovery: { action: 'abandon', abandonReason: 'Overtaken by events' },
       },
+      OWNER,
       NOW,
     );
 
@@ -430,6 +463,7 @@ describe('step 3 — every recovery produces a system effect', () => {
         reason: 'higher-priority-appeared',
         recovery: { action: 'link-displacing-commitment', displacedBy: 'other-commitment-id' },
       },
+      OWNER,
       NOW,
     );
 
@@ -445,6 +479,7 @@ describe('step 3 — every recovery produces a system effect', () => {
         note: 'kept opening other tabs',
         recovery: { action: 'schedule-start-session', startAt: NOW },
       },
+      OWNER,
       NOW,
     );
 
@@ -467,8 +502,8 @@ describe('the reckoning is idempotent', () => {
       recovery: { action: 'define-next-action' as const, nextAction: 'Draft the intro' },
     };
 
-    const first = await submitReckoning('c1', submission, NOW);
-    const second = await submitReckoning('c1', submission, NOW);
+    const first = await submitReckoning('c1', submission, OWNER, NOW);
+    const second = await submitReckoning('c1', submission, OWNER, NOW);
 
     expect(first.recorded).toBe(true);
     expect(second.recorded).toBe(false);
@@ -500,8 +535,8 @@ describe('the reckoning is idempotent', () => {
       },
     };
 
-    await submitReckoning('c1', submission, NOW);
-    await submitReckoning('c1', submission, NOW).catch(() => undefined);
+    await submitReckoning('c1', submission, OWNER, NOW);
+    await submitReckoning('c1', submission, OWNER, NOW).catch(() => undefined);
 
     // Two parts, not four.
     expect(store.commitments.filter((c) => String(c._id).startsWith('new-'))).toHaveLength(2);
@@ -515,9 +550,9 @@ describe('the reckoning is idempotent', () => {
       reason: 'forgot' as const,
       recovery: { action: 'define-next-action' as const, nextAction: 'Draft the intro' },
     };
-    await submitReckoning('c1', submission, NOW);
+    await submitReckoning('c1', submission, OWNER, NOW);
 
-    await expect(submitReckoning('c1', submission, NOW)).resolves.toMatchObject({
+    await expect(submitReckoning('c1', submission, OWNER, NOW)).resolves.toMatchObject({
       recorded: false,
     });
   });
@@ -534,6 +569,7 @@ describe('the reckoning is idempotent', () => {
           reason: 'forgot',
           recovery: { action: 'define-next-action', nextAction: 'x' },
         },
+        OWNER,
         NOW,
       ),
     ).rejects.toThrow(/not awaiting a reckoning/);
@@ -549,6 +585,7 @@ describe('a missed, reckoned, rescheduled, missed-again commitment', () => {
         reason: 'underestimated',
         recovery: { action: 'reduce-scope', newOutcome: 'Smaller', newEstimateMinutes: 30 },
       },
+      OWNER,
       NOW,
     );
 
@@ -556,6 +593,7 @@ describe('a missed, reckoned, rescheduled, missed-again commitment', () => {
     await changeDeadline(
       'c1',
       { newDueAt: second, reason: 'replan', category: 'deliberate-replan' },
+      OWNER,
       NOW,
     );
 
@@ -567,6 +605,7 @@ describe('a missed, reckoned, rescheduled, missed-again commitment', () => {
         reason: 'avoided',
         recovery: { action: 'schedule-start-session', startAt: later },
       },
+      OWNER,
       later,
     );
 

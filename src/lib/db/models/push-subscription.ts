@@ -14,6 +14,16 @@ const pushSubscriptionSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true, index: true },
     /**
+     * The primary this row belongs to.
+     *
+     * Every scoped query filters on it, so a primary reading their own data
+     * and an overseer reading the same primary's run one query with a
+     * different value. Indexed because it is in the predicate of essentially
+     * every read.
+     */
+    ownerId: { type: String, required: true, index: true },
+
+    /**
      * The push service's delivery URL. Unique because a browser re-registering
      * the same endpoint must update the existing row rather than accumulate
      * duplicates that each get their own copy of every notification.

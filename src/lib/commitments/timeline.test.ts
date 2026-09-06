@@ -8,8 +8,13 @@ const store = vi.hoisted(() => ({
 vi.mock('@/lib/db/mongoose', () => ({ connectToDatabase: async () => ({}) }));
 vi.mock('@/lib/db/models/commitment', () => ({
   CommitmentModel: {
-    findById: (id: string) => ({
-      lean: async () => store.commitments.find((c) => String(c._id) === String(id)) ?? null,
+    findOne: (query: { _id: string; ownerId?: string }) => ({
+      lean: async () =>
+        store.commitments.find(
+          (c) =>
+            String(c._id) === String(query._id) &&
+            (query.ownerId === undefined || c.ownerId === query.ownerId),
+        ) ?? null,
     }),
     find: () => ({ lean: async () => store.commitments }),
   },
@@ -21,7 +26,7 @@ vi.mock('@/lib/db/models/event', () => ({
   },
 }));
 vi.mock('@/lib/db/events', () => ({
-  readEntityEvents: async (entityId: string) =>
+  readEntityEvents: async (entityId: string, _ownerId?: string) =>
     store.events
       .filter((e) => e.entityId === entityId)
       .map((e) => ({
@@ -35,11 +40,13 @@ vi.mock('@/lib/db/events', () => ({
 const { buildTimeline } = await import('./timeline');
 
 const DEADLINE = new Date('2026-09-05T12:00:00.000Z');
+const OWNER = 'owner-1';
 
 beforeEach(() => {
   store.commitments = [
     {
       _id: 'c1',
+      ownerId: OWNER,
       title: 'Ship the report',
       dueAt: DEADLINE,
       originalDueAt: DEADLINE,
@@ -49,7 +56,7 @@ beforeEach(() => {
 });
 
 function event(type: string, ts: string, payload: Record<string, unknown> = {}) {
-  store.events.push({ entityId: 'c1', type, ts: new Date(ts), payload });
+  store.events.push({ entityId: 'c1', ownerId: OWNER, type, ts: new Date(ts), payload });
 }
 
 describe('buildTimeline ordering', () => {
@@ -68,7 +75,7 @@ describe('buildTimeline ordering', () => {
     });
     event('RECOVERY_ACTION_SELECTED', '2026-09-05T18:05:01Z', { action: 'define-next-action' });
 
-    const timeline = await buildTimeline('c1');
+    const timeline = await buildTimeline('c1', OWNER);
     const types = timeline.entries.map((entry) => entry.type);
 
     // Sorting by `ts` would put the reckoning before the commitment was even
@@ -86,7 +93,7 @@ describe('buildTimeline ordering', () => {
     event('COMMITMENT_CREATED', '2026-09-04T09:00:00Z');
     event('DEADLINE_MISSED', DEADLINE.toISOString(), { noticedAt: '2026-09-05T18:00:00Z' });
 
-    const timeline = await buildTimeline('c1');
+    const timeline = await buildTimeline('c1', OWNER);
     const stamps = timeline.entries.map((entry) => entry.ts);
 
     expect(stamps).toEqual([...stamps].sort());
@@ -98,7 +105,7 @@ describe('buildTimeline ordering', () => {
       minutesLate: 150,
     });
 
-    const [entry] = (await buildTimeline('c1')).entries;
+    const [entry] = (await buildTimeline('c1', OWNER)).entries;
 
     expect(entry?.line).toContain('late');
     expect(entry?.line).not.toBe('Completed on time');
@@ -108,7 +115,7 @@ describe('buildTimeline ordering', () => {
   it('renders an on-time completion plainly', async () => {
     event('COMMITMENT_COMPLETED', '2026-09-05T11:00:00Z', { lateAgainstDueAt: false });
 
-    expect((await buildTimeline('c1')).entries[0]?.line).toBe('Completed on time');
+    expect((await buildTimeline('c1', OWNER)).entries[0]?.line).toBe('Completed on time');
   });
 
   it('shows the category and the drift on a deadline change', async () => {
@@ -119,7 +126,7 @@ describe('buildTimeline ordering', () => {
       deltaDaysFromPrevious: 4,
     });
 
-    const [entry] = (await buildTimeline('c1')).entries;
+    const [entry] = (await buildTimeline('c1', OWNER)).entries;
 
     expect(entry?.line).toContain('Avoidance');
     expect(entry?.line).toContain('+4d');

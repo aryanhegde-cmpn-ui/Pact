@@ -13,8 +13,17 @@ vi.mock('@/lib/db/mongoose', () => ({ connectToDatabase: async () => ({}) }));
 
 vi.mock('@/lib/db/models/commitment', () => ({
   CommitmentModel: {
-    findById: (id: string) => ({ lean: async () => findById(id) }),
-    updateOne: async (filter: { _id: string }, update: { $set: Record<string, unknown> }) => {
+    findOne: (query: { _id: string; ownerId?: string }) => ({
+      lean: async () => {
+        const row = findById(query._id);
+        if (!row) return null;
+        return query.ownerId === undefined || row.ownerId === query.ownerId ? row : null;
+      },
+    }),
+    updateOne: async (
+      filter: { _id: string; ownerId?: string },
+      update: { $set: Record<string, unknown> },
+    ) => {
       // Mirrors the model's immutability guard.
       if ('originalDueAt' in update.$set) {
         throw new Error('originalDueAt is written once at creation and never again.');
@@ -113,7 +122,7 @@ vi.mock('@/lib/db/events', () => ({
   },
   // changeDeadline reads the log to decide whether the current deadline has
   // been reckoned with, so this has to be real rather than empty.
-  readEntityEvents: async (entityId: string) =>
+  readEntityEvents: async (entityId: string, _ownerId?: string) =>
     store.events
       .filter((event) => event.entityId === entityId)
       .map((event) => ({
@@ -128,11 +137,13 @@ const { changeDeadline, DeadlineError } = await import('./deadline');
 
 const ORIGINAL = new Date('2026-09-05T12:00:00.000Z');
 const NOW = new Date('2026-09-05T08:00:00.000Z');
+const OWNER = 'owner-1';
 
 beforeEach(() => {
   store.commitments = [
     {
       _id: 'c1',
+      ownerId: OWNER,
       title: 'Ship the report',
       dueAt: ORIGINAL,
       originalDueAt: ORIGINAL,
@@ -149,6 +160,7 @@ describe('changeDeadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: later, reason: 'Blocked on review', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -163,6 +175,7 @@ describe('changeDeadline', () => {
         reason: 'Blocked',
         category: 'underestimated',
       },
+      OWNER,
       NOW,
     );
 
@@ -175,6 +188,7 @@ describe('changeDeadline', () => {
       changeDeadline(
         'c1',
         { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: '', category: 'underestimated' },
+        OWNER,
         NOW,
       ),
     ).rejects.toThrow();
@@ -182,6 +196,7 @@ describe('changeDeadline', () => {
       changeDeadline(
         'c1',
         { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: '   ', category: 'underestimated' },
+        OWNER,
         NOW,
       ),
     ).rejects.toThrow();
@@ -192,6 +207,7 @@ describe('changeDeadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: later, reason: 'Blocked on review', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -213,6 +229,7 @@ describe('changeDeadline', () => {
         reason: 'Finishing early',
         category: 'underestimated',
       },
+      OWNER,
       NOW,
     );
 
@@ -223,16 +240,19 @@ describe('changeDeadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: new Date('2026-09-06T12:00:00Z'), reason: 'a', category: 'underestimated' },
+      OWNER,
       NOW,
     );
     await changeDeadline(
       'c1',
       { newDueAt: new Date('2026-09-07T12:00:00Z'), reason: 'b', category: 'underestimated' },
+      OWNER,
       NOW,
     );
     await changeDeadline(
       'c1',
       { newDueAt: new Date('2026-09-08T12:00:00Z'), reason: 'c', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -250,6 +270,7 @@ describe('changeDeadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: ORIGINAL, reason: 'no change', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -265,6 +286,7 @@ describe('changeDeadline', () => {
         changeDeadline(
           'c1',
           { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'x', category: 'underestimated' },
+          OWNER,
           NOW,
         ),
       ).rejects.toThrow(DeadlineError);
@@ -276,6 +298,7 @@ describe('changeDeadline', () => {
       changeDeadline(
         'nope',
         { newDueAt: new Date('2026-09-09T12:00:00Z'), reason: 'x', category: 'underestimated' },
+        OWNER,
         NOW,
       ),
     ).rejects.toThrow(DeadlineError);
@@ -307,9 +330,11 @@ describe('the notification queue follows the deadline', () => {
         dailyReviewAt: '07:30',
         defaultLeadMinutes: 30,
         disabledTypes: [],
+        shareNotesWithOverseer: false,
         lastDispatchAt: null,
       },
       'Asia/Kolkata',
+      OWNER,
       NOW,
     );
   }
@@ -322,6 +347,7 @@ describe('the notification queue follows the deadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: later, reason: 'Blocked', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -344,6 +370,7 @@ describe('the notification queue follows the deadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: later, reason: 'Blocked', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -358,6 +385,7 @@ describe('the notification queue follows the deadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: later, reason: 'Blocked', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -376,6 +404,7 @@ describe('the notification queue follows the deadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: ORIGINAL, reason: 'no change', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -385,7 +414,12 @@ describe('the notification queue follows the deadline', () => {
   it('revives cancelled rows rather than leaving nothing pending', async () => {
     await queueInitial();
     const later = new Date('2026-09-07T12:00:00.000Z');
-    await changeDeadline('c1', { newDueAt: later, reason: 'a', category: 'underestimated' }, NOW);
+    await changeDeadline(
+      'c1',
+      { newDueAt: later, reason: 'a', category: 'underestimated' },
+      OWNER,
+      NOW,
+    );
 
     const { reenqueueForCommitment } = await import('@/lib/notifications/queue');
     const result = await reenqueueForCommitment(
@@ -403,9 +437,11 @@ describe('the notification queue follows the deadline', () => {
         dailyReviewAt: '07:30',
         defaultLeadMinutes: 30,
         disabledTypes: [],
+        shareNotesWithOverseer: false,
         lastDispatchAt: null,
       },
       'Asia/Kolkata',
+      OWNER,
       NOW,
     );
 
@@ -425,11 +461,13 @@ describe('the notification queue follows the deadline', () => {
     await changeDeadline(
       'c1',
       { newDueAt: later, reason: 'slipped', category: 'underestimated' },
+      OWNER,
       NOW,
     );
     await changeDeadline(
       'c1',
       { newDueAt: ORIGINAL, reason: 'back on track', category: 'underestimated' },
+      OWNER,
       NOW,
     );
 
@@ -463,9 +501,11 @@ describe('the notification queue follows the deadline', () => {
         dailyReviewAt: '07:30',
         defaultLeadMinutes: 30,
         disabledTypes: [],
+        shareNotesWithOverseer: false,
         lastDispatchAt: null,
       },
       'Asia/Kolkata',
+      OWNER,
       NOW,
     );
 

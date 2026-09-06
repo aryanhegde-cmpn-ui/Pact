@@ -13,8 +13,17 @@ vi.mock('@/lib/db/mongoose', () => ({ connectToDatabase: async () => ({}) }));
 
 vi.mock('@/lib/db/models/series', () => ({
   SeriesModel: {
-    findById: (id: string) => ({ lean: async () => findById(store.series, id) }),
-    updateOne: async (filter: { _id: string }, update: { $set: Record<string, unknown> }) => {
+    findOne: (query: { _id: string; ownerId?: string }) => ({
+      lean: async () => {
+        const row = findById(store.series, query._id);
+        if (!row) return null;
+        return query.ownerId === undefined || row.ownerId === query.ownerId ? row : null;
+      },
+    }),
+    updateOne: async (
+      filter: { _id: string; ownerId?: string },
+      update: { $set: Record<string, unknown> },
+    ) => {
       const row = findById(store.series, filter._id);
       if (row) Object.assign(row, update.$set);
       return { modifiedCount: 1 };
@@ -30,18 +39,25 @@ vi.mock('@/lib/db/models/series', () => ({
 
 vi.mock('@/lib/db/models/commitment', () => ({
   CommitmentModel: {
-    findOne: (query: { seriesId: string; occurrenceDate: string }) => ({
+    findOne: (query: { seriesId: string; occurrenceDate: string; ownerId?: string }) => ({
       lean: async () =>
         store.commitments.find(
           (row) => row.seriesId === query.seriesId && row.occurrenceDate === query.occurrenceDate,
         ) ?? null,
     }),
-    updateOne: async (filter: { _id: string }, update: { $set: Record<string, unknown> }) => {
+    updateOne: async (
+      filter: { _id: string; ownerId?: string },
+      update: { $set: Record<string, unknown> },
+    ) => {
       const row = findById(store.commitments, filter._id);
       if (row) Object.assign(row, update.$set);
       return { modifiedCount: 1 };
     },
-    deleteMany: async (query: { seriesId: string; occurrenceDate: { $gt: string } }) => {
+    deleteMany: async (query: {
+      seriesId: string;
+      occurrenceDate: { $gt: string };
+      ownerId?: string;
+    }) => {
       const before = store.commitments.length;
       store.commitments = store.commitments.filter(
         (row) =>
@@ -68,10 +84,12 @@ const { endSeries, updateSeries } = await import('./series-service');
 
 const IST = 'Asia/Kolkata';
 const NOW = new Date('2026-09-10T06:00:00.000Z'); // 2026-09-10 local
+const OWNER = 'owner-1';
 
 function occurrence(date: string, overrides: Record<string, unknown> = {}) {
   return {
     _id: `c-${date}`,
+    ownerId: OWNER,
     seriesId: 's1',
     occurrenceDate: date,
     title: 'Morning review',
@@ -87,6 +105,7 @@ beforeEach(() => {
   store.series = [
     {
       _id: 's1',
+      ownerId: OWNER,
       title: 'Morning review',
       outcome: 'Tomorrow is planned',
       priority: 'important',
@@ -119,6 +138,7 @@ describe('this-occurrence edits', () => {
       's1',
       { scope: 'this-occurrence', occurrenceDate: '2026-09-10', title: 'Just today' },
       IST,
+      OWNER,
       NOW,
     );
 
@@ -135,6 +155,7 @@ describe('this-occurrence edits', () => {
       's1',
       { scope: 'this-occurrence', occurrenceDate: '2026-09-10', title: 'Just today' },
       IST,
+      OWNER,
       NOW,
     );
 
@@ -150,7 +171,13 @@ describe('this-and-future edits', () => {
       .filter((c) => (c.occurrenceDate as string) < '2026-09-10')
       .map((c) => ({ ...c }));
 
-    await updateSeries('s1', { scope: 'this-and-future', title: 'Evening review' }, IST, NOW);
+    await updateSeries(
+      's1',
+      { scope: 'this-and-future', title: 'Evening review' },
+      IST,
+      OWNER,
+      NOW,
+    );
 
     for (const original of before) {
       const after = store.commitments.find((c) => c._id === original._id);
@@ -161,7 +188,13 @@ describe('this-and-future edits', () => {
   });
 
   it('ends the old series the day before today and starts a new one', async () => {
-    await updateSeries('s1', { scope: 'this-and-future', title: 'Evening review' }, IST, NOW);
+    await updateSeries(
+      's1',
+      { scope: 'this-and-future', title: 'Evening review' },
+      IST,
+      OWNER,
+      NOW,
+    );
 
     const old = store.series.find((s) => s._id === 's1');
     expect(old?.status).toBe('ended');
@@ -190,6 +223,7 @@ describe('this-and-future edits', () => {
         },
       },
       IST,
+      OWNER,
       NOW,
     );
 
@@ -199,7 +233,13 @@ describe('this-and-future edits', () => {
   });
 
   it('logs the ending and the replacement', async () => {
-    await updateSeries('s1', { scope: 'this-and-future', title: 'Evening review' }, IST, NOW);
+    await updateSeries(
+      's1',
+      { scope: 'this-and-future', title: 'Evening review' },
+      IST,
+      OWNER,
+      NOW,
+    );
 
     const types = store.events.map((e) => e.type);
     expect(types).toContain('SERIES_ENDED');
@@ -210,20 +250,20 @@ describe('this-and-future edits', () => {
 
 describe('ending a series', () => {
   it('does not delete past occurrences', async () => {
-    await endSeries('s1', IST, NOW);
+    await endSeries('s1', IST, OWNER, NOW);
 
     expect(store.commitments.find((c) => c.occurrenceDate === '2026-09-05')).toBeDefined();
     expect(store.commitments.find((c) => c.occurrenceDate === '2026-09-08')).toBeDefined();
   });
 
   it("keeps today's occurrence", async () => {
-    await endSeries('s1', IST, NOW);
+    await endSeries('s1', IST, OWNER, NOW);
 
     expect(store.commitments.find((c) => c.occurrenceDate === '2026-09-10')).toBeDefined();
   });
 
   it('removes only untouched future occurrences', async () => {
-    const result = await endSeries('s1', IST, NOW);
+    const result = await endSeries('s1', IST, OWNER, NOW);
 
     expect(result.futureOccurrencesRemoved).toBe(2);
     expect(store.commitments.find((c) => c.occurrenceDate === '2026-09-12')).toBeUndefined();
@@ -234,14 +274,14 @@ describe('ending a series', () => {
       occurrence('2026-09-20', { status: 'in-progress', startedAt: new Date() }),
     );
 
-    await endSeries('s1', IST, NOW);
+    await endSeries('s1', IST, OWNER, NOW);
 
     // Work already begun is history, not a stale projection.
     expect(store.commitments.find((c) => c.occurrenceDate === '2026-09-20')).toBeDefined();
   });
 
   it('marks the series ended rather than deleting it', async () => {
-    await endSeries('s1', IST, NOW);
+    await endSeries('s1', IST, OWNER, NOW);
 
     expect(store.series.find((s) => s._id === 's1')?.status).toBe('ended');
   });

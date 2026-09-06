@@ -1,4 +1,7 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+
+import { currentActor } from '@/lib/api/guard';
 
 import { listPostponements, type PostponementRow } from '@/lib/commitments/timeline';
 
@@ -12,7 +15,10 @@ export const metadata = { title: 'Postponements' };
  * pattern is a conversation rather than a fourth new date.
  */
 export default async function PostponementsPage(): Promise<React.JSX.Element> {
-  const groups = await listPostponements();
+  const actor = await currentActor();
+  if (!actor) redirect('/');
+
+  const groups = await listPostponements(actor.ownerId);
   const total = groups.once.length + groups.twice.length + groups.chronic.length;
 
   return (

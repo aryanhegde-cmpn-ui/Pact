@@ -47,6 +47,7 @@ export async function appendEvent(input: AppendEventInput): Promise<AppendResult
       entityId: parsed.entityId,
       payload: parsed.payload ?? {},
       source: parsed.source,
+      ownerId: parsed.ownerId,
       // Only set on synthetic rows, so the field stays absent on real history
       // and the sparse index the purge uses stays small.
       ...(parsed.source === 'seed' ? { synthetic: true } : {}),
@@ -64,8 +65,11 @@ export async function appendEvent(input: AppendEventInput): Promise<AppendResult
 /** Reads one entity's history, oldest first. The behaviour engine's input. */
 export async function readEntityEvents(
   entityId: string,
+  ownerId: string,
 ): Promise<{ ts: Date; type: EventType; payload: Record<string, unknown>; source: string }[]> {
-  const rows = await EventModel.find({ entityId }).sort({ ts: 1 }).lean();
+  // Scoped: an event id is guessable, and the log is the most sensitive read
+  // in the system.
+  const rows = await EventModel.find({ entityId, ownerId }).sort({ ts: 1 }).lean();
 
   return rows.map((row) => ({
     ts: row.ts,

@@ -28,6 +28,16 @@ const notificationSchema = new mongoose.Schema(
   {
     /** Null for notifications not about one commitment, such as DAILY_REVIEW. */
     commitmentId: { type: String, default: null, index: true },
+    /**
+     * The primary this row belongs to.
+     *
+     * Every scoped query filters on it, so a primary reading their own data
+     * and an overseer reading the same primary's run one query with a
+     * different value. Indexed because it is in the predicate of essentially
+     * every read.
+     */
+    ownerId: { type: String, required: true, index: true },
+
     type: { type: String, required: true, enum: notificationTypeSchema.options },
     scheduledFor: { type: Date, required: true },
     channel: { type: String, required: true, enum: notificationChannelSchema.options },

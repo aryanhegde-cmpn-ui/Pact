@@ -44,13 +44,15 @@ export async function materialiseRange(
   rangeStart: DateKey,
   rangeEnd: DateKey,
   timeZone: string,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<MaterialiseResult> {
   const horizon = addDays(rangeEnd, LOOKAHEAD_DAYS);
   // Read once for the whole pass rather than per occurrence.
-  const settings = await getSettings();
+  const settings = await getSettings(ownerId);
 
   const active = await SeriesModel.find({
+    ownerId,
     status: 'active',
     startDate: { $lte: horizon },
     $or: [{ endDate: null }, { endDate: { $gte: rangeStart } }],
@@ -75,7 +77,7 @@ export async function materialiseRange(
 
     // One query for what already exists, rather than one per candidate date.
     const existing = await CommitmentModel.find(
-      { seriesId, occurrenceDate: { $in: dates } },
+      { ownerId, seriesId, occurrenceDate: { $in: dates } },
       { occurrenceDate: 1 },
     ).lean();
     const have = new Set(existing.map((row) => row.occurrenceDate));
@@ -103,12 +105,14 @@ export async function materialiseRange(
           startedAt: null,
           completedAt: null,
           notes: '',
+          ownerId,
         });
 
         await appendEvent({
           type: 'COMMITMENT_CREATED',
           entityType: 'commitment',
           entityId: String(doc._id),
+          ownerId,
           ts: now,
           // Not a user action: the rule produced this, not a person.
           source: 'system',
@@ -119,6 +123,7 @@ export async function materialiseRange(
           type: 'DEADLINE_SET',
           entityType: 'commitment',
           entityId: String(doc._id),
+          ownerId,
           ts: now,
           source: 'system',
           payload: { dueAt: dueAt.toISOString(), seriesId },
@@ -139,6 +144,7 @@ export async function materialiseRange(
           },
           settings,
           timeZone,
+          ownerId,
           now,
         );
 

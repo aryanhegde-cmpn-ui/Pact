@@ -1,5 +1,8 @@
 import { CommitmentList } from '@/components/commitments/commitment-list';
 import { listByDateRange, listOverdue } from '@/lib/commitments/service';
+import { redirect } from 'next/navigation';
+
+import { currentActor } from '@/lib/api/guard';
 import { getEnv } from '@/lib/env';
 import { getSettings } from '@/lib/notifications/settings';
 import { toDateKey } from '@/lib/time';
@@ -22,10 +25,14 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
 
   // Reading is what materialises series occurrences and records observed
   // misses -- there is no scheduler doing it beforehand.
+  const actor = await currentActor();
+  if (!actor) redirect('/');
+  const ownerId = actor.ownerId;
+
   const [commitments, overdue, settings] = await Promise.all([
-    listByDateRange(today, today, timeZone, now),
-    listOverdue(now),
-    getSettings(),
+    listByDateRange(today, today, timeZone, ownerId, now),
+    listOverdue(ownerId, now),
+    getSettings(ownerId),
   ]);
 
   const inRange = new Set(commitments.map((c) => c.id));

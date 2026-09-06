@@ -1,5 +1,4 @@
-import { auth } from '@/lib/auth';
-import { jsonError, jsonOk, readJson, translateError } from '@/lib/api/guard';
+import { jsonOk, readJson, requireCapability } from '@/lib/api/guard';
 import { changeDeadline } from '@/lib/commitments/deadline';
 import { getCommitment } from '@/lib/commitments/service';
 import { changeDeadlineSchema } from '@/lib/schemas/commitment';
@@ -13,20 +12,12 @@ export const dynamic = 'force-dynamic';
  * Separate from PATCH deliberately: making it its own endpoint is what stops a
  * reschedule from riding along inside a routine edit.
  */
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
-
-  try {
-    const { id } = await params;
+export const POST = requireCapability('commitment:write', async (actor, request, context) => {
+  {
+    const { id = '' } = await context.params;
     const input = changeDeadlineSchema.parse(await readJson(request));
 
-    await changeDeadline(id, input);
-    return jsonOk(await getCommitment(id));
-  } catch (error) {
-    return translateError(error);
+    await changeDeadline(id, input, actor.ownerId);
+    return jsonOk(await getCommitment(id, actor.ownerId));
   }
-}
+});

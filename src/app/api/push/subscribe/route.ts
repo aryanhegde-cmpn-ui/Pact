@@ -14,7 +14,10 @@ export async function GET(): Promise<Response> {
 
   try {
     await connectToDatabase();
-    const rows = await PushSubscriptionModel.find({ userId: session.user.id }).lean();
+    const rows = await PushSubscriptionModel.find({
+      userId: session.user.id,
+      ownerId: session.user.id,
+    }).lean();
 
     return jsonOk({
       subscriptions: rows.map((row) => ({
@@ -54,6 +57,8 @@ export async function POST(request: Request): Promise<Response> {
       {
         $set: {
           userId: session.user.id,
+          // A device belongs to the account that registered it.
+          ownerId: session.user.id,
           keys: input.keys,
           userAgent: (input.userAgent ?? '').slice(0, 500),
           // A re-registration is evidence the endpoint is alive, so the
@@ -82,10 +87,11 @@ export async function DELETE(request: Request): Promise<Response> {
     await connectToDatabase();
 
     const filter = body.endpoint
-      ? { endpoint: body.endpoint, userId: session.user.id }
-      : { _id: body.id, userId: session.user.id };
+      ? { endpoint: body.endpoint, userId: session.user.id, ownerId: session.user.id }
+      : { _id: body.id, userId: session.user.id, ownerId: session.user.id };
 
-    const result = await PushSubscriptionModel.deleteOne(filter);
+    // `filter` carries ownerId in both branches above.
+    const result = await PushSubscriptionModel.deleteOne({ ...filter, ownerId: session.user.id });
     return jsonOk({ deleted: result.deletedCount ?? 0 });
   } catch (error) {
     return translateError(error);

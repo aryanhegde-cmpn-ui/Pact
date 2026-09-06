@@ -37,15 +37,16 @@ export interface ReckoningResult {
 export async function submitReckoning(
   commitmentId: string,
   input: ReckoningSubmission,
+  ownerId: string,
   now: Date = new Date(),
 ): Promise<ReckoningResult> {
   const submission = reckoningSubmissionSchema.parse(input);
   await connectToDatabase();
 
-  const commitment = await CommitmentModel.findById(commitmentId).lean();
+  const commitment = await CommitmentModel.findOne({ _id: commitmentId, ownerId }).lean();
   if (!commitment) throw new CommitmentError('No such commitment.', 404);
 
-  const history = await readEntityEvents(commitmentId);
+  const history = await readEntityEvents(commitmentId, ownerId);
 
   /**
    * Two different "no" answers, deliberately separated.
@@ -84,6 +85,7 @@ export async function submitReckoning(
     type: 'RECKONING_SUBMITTED',
     entityType: 'commitment',
     entityId: commitmentId,
+    ownerId,
     ts: missedDeadline,
     source: 'user',
     payload: {
@@ -113,7 +115,7 @@ export async function submitReckoning(
     const completedAt = submission.completedAt ?? now;
 
     await CommitmentModel.updateOne(
-      { _id: commitmentId },
+      { _id: commitmentId, ownerId },
       { $set: { status: 'done', completedAt } },
     );
 
@@ -121,6 +123,7 @@ export async function submitReckoning(
       type: 'COMMITMENT_COMPLETED',
       entityType: 'commitment',
       entityId: commitmentId,
+      ownerId,
       // The REAL completion time, not `now`. The history has to show
       // completed-after-deadline; recording it at submission time would make a
       // task finished on Tuesday and confessed on Friday look like neither.
@@ -141,7 +144,7 @@ export async function submitReckoning(
       },
     });
 
-    await cancelPendingForCommitment(commitmentId);
+    await cancelPendingForCommitment(commitmentId, ownerId);
 
     return {
       recorded: true,
@@ -153,12 +156,13 @@ export async function submitReckoning(
 
   // --- Step 3: apply the recovery ------------------------------------------
   const recovery = submission.recovery!;
-  const applied = await applyRecovery(commitmentId, commitment, recovery, now);
+  const applied = await applyRecovery(commitmentId, commitment, recovery, ownerId, now);
 
   await appendEvent({
     type: 'RECOVERY_ACTION_SELECTED',
     entityType: 'commitment',
     entityId: commitmentId,
+    ownerId,
     ts: now,
     source: 'user',
     payload: {
@@ -199,12 +203,13 @@ async function applyRecovery(
   commitmentId: string,
   commitment: StoredCommitment,
   recovery: RecoveryDetail,
+  ownerId: string,
   now: Date,
 ): Promise<{ effect: string; createdCommitmentIds: string[] }> {
   switch (recovery.action) {
     case 'reduce-scope': {
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         { $set: { outcome: recovery.newOutcome, estimateMinutes: recovery.newEstimateMinutes } },
       );
       return {
@@ -227,6 +232,7 @@ async function applyRecovery(
           status: 'pending',
           priority: commitment.priority,
           createdAt: now,
+          ownerId,
         });
         created.push(String(doc._id));
 
@@ -234,6 +240,7 @@ async function applyRecovery(
           type: 'COMMITMENT_CREATED',
           entityType: 'commitment',
           entityId: String(doc._id),
+          ownerId,
           ts: now,
           source: 'user',
           payload: { splitFrom: commitmentId, title: part.title },
@@ -242,6 +249,7 @@ async function applyRecovery(
           type: 'DEADLINE_SET',
           entityType: 'commitment',
           entityId: String(doc._id),
+          ownerId,
           ts: now,
           source: 'user',
           payload: { dueAt: part.dueAt.toISOString(), splitFrom: commitmentId },
@@ -256,8 +264,9 @@ async function applyRecovery(
             estimateMinutes: part.estimateMinutes,
             priority: commitment.priority,
           },
-          await getSettings(),
+          await getSettings(ownerId),
           getEnv().APP_TIMEZONE,
+          ownerId,
           now,
         );
       }
@@ -265,18 +274,19 @@ async function applyRecovery(
       // The original is closed by the split: leaving it open would double-count
       // the same work and leave a permanently unreckonable parent.
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         { $set: { status: 'abandoned', splitInto: created } },
       );
       await appendEvent({
         type: 'COMMITMENT_ABANDONED',
         entityType: 'commitment',
         entityId: commitmentId,
+        ownerId,
         ts: now,
         source: 'user',
         payload: { reason: 'Split into smaller commitments', splitInto: created },
       });
-      await cancelPendingForCommitment(commitmentId);
+      await cancelPendingForCommitment(commitmentId, ownerId);
 
       return {
         effect: `Split into ${created.length} commitments. The original is closed.`,
@@ -286,7 +296,7 @@ async function applyRecovery(
 
     case 'define-next-action': {
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         { $set: { nextAction: recovery.nextAction } },
       );
       return {
@@ -297,7 +307,7 @@ async function applyRecovery(
 
     case 'define-starting-action': {
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         {
           $set: {
             nextAction: recovery.nextAction,
@@ -325,12 +335,14 @@ async function applyRecovery(
         priority: commitment.priority,
         createdAt: now,
         startSessionFor: commitmentId,
+        ownerId,
       });
 
       await appendEvent({
         type: 'SESSION_SCHEDULED',
         entityType: 'commitment',
         entityId: commitmentId,
+        ownerId,
         ts: now,
         source: 'user',
         payload: {
@@ -343,6 +355,7 @@ async function applyRecovery(
         type: 'COMMITMENT_CREATED',
         entityType: 'commitment',
         entityId: String(doc._id),
+        ownerId,
         ts: now,
         source: 'user',
         payload: { startSessionFor: commitmentId },
@@ -357,8 +370,9 @@ async function applyRecovery(
           estimateMinutes: START_SESSION_MINUTES,
           priority: commitment.priority,
         },
-        await getSettings(),
+        await getSettings(ownerId),
         getEnv().APP_TIMEZONE,
+        ownerId,
         now,
       );
 
@@ -370,7 +384,7 @@ async function applyRecovery(
 
     case 'mark-blocked': {
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         {
           $set: {
             status: 'blocked',
@@ -387,7 +401,7 @@ async function applyRecovery(
 
     case 'lower-quality-bar': {
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         // The lower bar becomes the outcome, so "done" now means the smaller
         // thing rather than the standard that caused the miss.
         { $set: { outcome: recovery.newOutcome } },
@@ -399,11 +413,15 @@ async function applyRecovery(
     }
 
     case 'abandon': {
-      await CommitmentModel.updateOne({ _id: commitmentId }, { $set: { status: 'abandoned' } });
+      await CommitmentModel.updateOne(
+        { _id: commitmentId, ownerId },
+        { $set: { status: 'abandoned' } },
+      );
       await appendEvent({
         type: 'COMMITMENT_ABANDONED',
         entityType: 'commitment',
         entityId: commitmentId,
+        ownerId,
         ts: now,
         source: 'user',
         payload: {
@@ -411,14 +429,14 @@ async function applyRecovery(
           viaReckoning: true,
         },
       });
-      await cancelPendingForCommitment(commitmentId);
+      await cancelPendingForCommitment(commitmentId, ownerId);
 
       return { effect: 'Abandoned, with the reason recorded.', createdCommitmentIds: [] };
     }
 
     case 'link-displacing-commitment': {
       await CommitmentModel.updateOne(
-        { _id: commitmentId },
+        { _id: commitmentId, ownerId },
         { $set: { displacedBy: recovery.displacedBy } },
       );
       return {
