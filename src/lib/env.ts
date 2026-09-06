@@ -74,6 +74,8 @@ const envSchema = z.object({
    */
   SEED_USER_EMAIL: z.email().optional(),
   SEED_USER_PASSWORD: z.string().min(12, 'must be at least 12 characters').optional(),
+  /** Falls back to the email's local part when unset. */
+  SEED_USER_USERNAME: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

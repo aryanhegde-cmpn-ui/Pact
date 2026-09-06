@@ -20,7 +20,13 @@ import { assertSafeToMutate, describeUri } from '@/lib/db/guard-uri';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getEnv } from '@/lib/env';
 
-const PATTERNS: PatternName[] = ['chronic-postponer', 'late-night-misser', 'steady', 'mixed'];
+const PATTERNS: PatternName[] = [
+  'on-track',
+  'chronic-postponer',
+  'late-night-misser',
+  'steady',
+  'mixed',
+];
 
 function readArg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);

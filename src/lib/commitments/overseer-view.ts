@@ -60,10 +60,17 @@ export interface OverseerSnapshot {
   recentMisses: OverseerCommitment[];
   reckonings: OverseerReckoning[];
   deadlineChanges: {
-    category: DeadlineChangeCategory | null;
-    label: string | null;
+    category: DeadlineChangeCategory;
+    label: string;
     count: number;
   }[];
+  /**
+   * Deadline changes predating the category requirement.
+   *
+   * Reported separately rather than counted as a category: a phantom bucket
+   * competing for "most common" would misreport the actual pattern.
+   */
+  legacyChanges: number;
   /** So the surface can say why free text is absent rather than looking broken. */
   notesShared: boolean;
 }
@@ -123,9 +130,20 @@ export async function buildOverseerSnapshot(
     ...(notesShared && row.notes ? { notes: row.notes } : {}),
   });
 
-  const categoryCounts = new Map<DeadlineChangeCategory | null, number>();
+  /**
+   * Rows predating the category requirement are counted separately, not as a
+   * category. A `null` bucket competing for "most common" would misreport the
+   * pattern, and calling it a category would imply one was chosen and left
+   * blank.
+   */
+  const categoryCounts = new Map<DeadlineChangeCategory, number>();
+  let legacyChanges = 0;
   for (const event of changeEvents) {
-    const category = (event.payload as { category?: DeadlineChangeCategory })?.category ?? null;
+    const category = (event.payload as { category?: DeadlineChangeCategory })?.category;
+    if (!category) {
+      legacyChanges += 1;
+      continue;
+    }
     categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
   }
 
@@ -154,10 +172,11 @@ export async function buildOverseerSnapshot(
     deadlineChanges: [...categoryCounts.entries()]
       .map(([category, count]) => ({
         category,
-        label: category ? DEADLINE_CATEGORY_LABELS[category] : null,
+        label: DEADLINE_CATEGORY_LABELS[category],
         count,
       }))
       .sort((a, b) => b.count - a.count),
+    legacyChanges,
     notesShared,
   };
 }
