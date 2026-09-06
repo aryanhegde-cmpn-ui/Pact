@@ -23,7 +23,9 @@ export async function getSettings(): Promise<ResolvedSettings> {
   const doc = await SettingsModel.findOneAndUpdate(
     { key: 'singleton' },
     { $setOnInsert: { ...DEFAULT_SETTINGS, updatedAt: new Date() } },
-    { upsert: true, new: true },
+    // The post-insert document, so a first read returns the defaults that were
+    // just written rather than null.
+    { upsert: true, returnDocument: 'after' },
   ).lean();
 
   return {

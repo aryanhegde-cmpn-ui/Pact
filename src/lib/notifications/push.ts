@@ -163,7 +163,10 @@ async function handleSendFailure(
       $inc: { failureCount: 1 },
       $set: { lastFailureAt: now, lastFailureReason: messageOf(error).slice(0, 200) },
     },
-    { new: true },
+    // The POST-update document: the decision below compares the incremented
+    // count against the threshold, so returning the pre-update value would
+    // delete a subscription one failure late.
+    { returnDocument: 'after' },
   ).lean();
 
   const failureCount = updated?.failureCount ?? 0;
