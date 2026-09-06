@@ -1,7 +1,8 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import { LoginAttemptModel } from '@/lib/db/models/login-attempt';
-import { normaliseEmail } from '@/lib/schemas/user';
 
 /** Failures within the window that trigger a lockout. */
 export const MAX_FAILURES = 10;
@@ -20,16 +21,49 @@ export interface LockoutState {
 }
 
 /**
- * Whether this email is currently locked out.
+ * The key a lockout counter is stored under.
+ *
+ * THIS IS THE SECURITY-CRITICAL PART.
+ *
+ * Keying on the submitted string is wrong. Once one account can be reached by
+ * both a username and an email, "aryan" and "aryan@example.com" maintain
+ * separate counters, and an attacker alternating between them gets twice the
+ * attempt budget against one account. Add a third identifier later and it is
+ * three times. The counter has to key on the thing being attacked, which is
+ * the ACCOUNT, not the string used to name it.
+ *
+ * So: a resolved user gets `user:<id>`, regardless of which identifier was
+ * typed.
+ *
+ * Identifiers that resolve to nobody still need a counter, or enumeration is
+ * unlimited and free. They get `unknown:<hash>` — hashed so the collection is
+ * not a list of guessed usernames and email addresses, which is exactly the
+ * data an attacker was trying to obtain.
+ *
+ * The two namespaces cannot collide: `user:` ids and `unknown:` hashes are
+ * disjoint by construction.
+ */
+export function lockoutKeyForUser(userId: string): string {
+  return `user:${userId}`;
+}
+
+export function lockoutKeyForUnknown(identifier: string): string {
+  const normalised = identifier.trim().toLowerCase();
+  const digest = createHash('sha256').update(normalised).digest('hex').slice(0, 32);
+
+  return `unknown:${digest}`;
+}
+
+/**
+ * Whether this key is currently locked out.
  *
  * `now` is passed in rather than read from the clock so the behaviour is
- * deterministic and testable -- the same rule the behaviour analysis follows.
+ * deterministic and testable.
  */
-export async function getLockoutState(email: string, now: Date): Promise<LockoutState> {
-  const key = normaliseEmail(email);
+export async function getLockoutState(key: string, now: Date): Promise<LockoutState> {
   const windowStart = new Date(now.getTime() - FAILURE_WINDOW_MS);
 
-  const recent = await LoginAttemptModel.find({ email: key, attemptedAt: { $gte: windowStart } })
+  const recent = await LoginAttemptModel.find({ key, attemptedAt: { $gte: windowStart } })
     .sort({ attemptedAt: -1 })
     .limit(MAX_FAILURES)
     .lean();
@@ -55,17 +89,17 @@ export async function getLockoutState(email: string, now: Date): Promise<Lockout
 }
 
 /**
- * Records a failed attempt.
+ * Records a failed attempt against a key.
  *
- * Called for unknown emails as well as wrong passwords. Recording only real
- * accounts would make the collection itself a list of valid addresses, and
- * would let a caller infer existence from response timing.
+ * Called for unknown identifiers as well as wrong passwords. Recording only
+ * real accounts would make the collection itself a list of valid identifiers,
+ * and would let a caller infer existence from response timing.
  */
-export async function recordFailedAttempt(email: string, now: Date): Promise<void> {
-  await LoginAttemptModel.create({ email: normaliseEmail(email), attemptedAt: now });
+export async function recordFailedAttempt(key: string, now: Date): Promise<void> {
+  await LoginAttemptModel.create({ key, attemptedAt: now });
 }
 
-/** Clears the failure history for an email. Called after a successful sign-in. */
-export async function clearFailedAttempts(email: string): Promise<void> {
-  await LoginAttemptModel.deleteMany({ email: normaliseEmail(email) });
+/** Clears the failure history for a key. Called after a successful sign-in. */
+export async function clearFailedAttempts(key: string): Promise<void> {
+  await LoginAttemptModel.deleteMany({ key });
 }

@@ -19,6 +19,16 @@ import { frequencySchema, seriesStatusSchema } from '@/lib/schemas/series';
 const seriesSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
+    /**
+     * The primary this row belongs to.
+     *
+     * Every scoped query filters on it, so a primary reading their own data
+     * and an overseer reading the same primary's run one query with a
+     * different value. Indexed because it is in the predicate of essentially
+     * every read.
+     */
+    ownerId: { type: String, required: true, index: true },
+
     outcome: { type: String, required: true, trim: true },
 
     rule: {

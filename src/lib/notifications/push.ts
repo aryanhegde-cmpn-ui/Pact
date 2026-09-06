@@ -78,7 +78,9 @@ export async function sendToUser(
 
   if (!configure()) return report;
 
-  const subscriptions = await PushSubscriptionModel.find({ userId }).lean();
+  // `userId` IS the ownership scope for a subscription: it is the account the
+  // device belongs to.
+  const subscriptions = await PushSubscriptionModel.find({ userId, ownerId: userId }).lean();
   report.attempted = subscriptions.length;
 
   const body = JSON.stringify(payload);
@@ -88,7 +90,7 @@ export async function sendToUser(
       // Mongoose types a nested subdocument as optional. A row without keys
       // cannot be encrypted for, so drop it rather than send garbage.
       if (!subscription.keys?.p256dh || !subscription.keys?.auth) {
-        await PushSubscriptionModel.deleteOne({ endpoint: subscription.endpoint });
+        await PushSubscriptionModel.deleteOne({ endpoint: subscription.endpoint, ownerId: userId });
         report.deleted += 1;
         report.outcomes.push({
           endpoint: subscription.endpoint,
@@ -112,7 +114,7 @@ export async function sendToUser(
         );
 
         await PushSubscriptionModel.updateOne(
-          { endpoint: subscription.endpoint },
+          { endpoint: subscription.endpoint, ownerId: userId },
           // Reset on success: a device offline for a day then back must not
           // inherit yesterday's failures and get deleted.
           { $set: { lastSuccessAt: now, failureCount: 0, lastFailureReason: null } },
@@ -121,7 +123,7 @@ export async function sendToUser(
         report.sent += 1;
         report.outcomes.push({ endpoint: subscription.endpoint, result: 'sent' });
       } catch (error) {
-        const outcome = await handleSendFailure(subscription.endpoint, error, now);
+        const outcome = await handleSendFailure(subscription.endpoint, userId, error, now);
         report.outcomes.push(outcome);
         if (outcome.result === 'deleted') report.deleted += 1;
         else report.failed += 1;
@@ -147,18 +149,19 @@ export async function sendToUser(
  */
 async function handleSendFailure(
   endpoint: string,
+  ownerId: string,
   error: unknown,
   now: Date,
 ): Promise<SubscriptionOutcome> {
   const status = statusOf(error);
 
   if (status === 404 || status === 410) {
-    await PushSubscriptionModel.deleteOne({ endpoint });
+    await PushSubscriptionModel.deleteOne({ endpoint, ownerId });
     return { endpoint, result: 'deleted', reason: 'gone', status };
   }
 
   const updated = await PushSubscriptionModel.findOneAndUpdate(
-    { endpoint },
+    { endpoint, ownerId },
     {
       $inc: { failureCount: 1 },
       $set: { lastFailureAt: now, lastFailureReason: messageOf(error).slice(0, 200) },
@@ -172,7 +175,7 @@ async function handleSendFailure(
   const failureCount = updated?.failureCount ?? 0;
 
   if (failureCount >= MAX_CONSECUTIVE_FAILURES) {
-    await PushSubscriptionModel.deleteOne({ endpoint });
+    await PushSubscriptionModel.deleteOne({ endpoint, ownerId });
     return { endpoint, result: 'deleted', reason: 'too-many-failures', status };
   }
 

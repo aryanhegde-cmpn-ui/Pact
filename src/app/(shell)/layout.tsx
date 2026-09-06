@@ -29,7 +29,7 @@ export default async function ShellLayout({
   const displayName = session.user.name ?? session.user.email ?? 'Signed in';
 
   // Derived on read like every other behavioural number here.
-  const outstanding = await countNeedsReckoning();
+  const outstanding = await countNeedsReckoning(session.user.ownerId ?? session.user.id);
 
   return (
     <div className="flex min-h-dvh pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">

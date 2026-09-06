@@ -9,19 +9,27 @@ import mongoose, { type InferSchemaType, type Model } from 'mongoose';
  * invocations share no process: an in-process counter would reset on every cold
  * start and throttle nothing. See CLAUDE.md, "Deployment constraints".
  *
- * Rows are written for emails that do not exist, too. Skipping them would leak
- * which addresses are real through a timing or storage side channel.
+ * Rows are written for identifiers that resolve to nobody, too. Skipping them
+ * would leak which accounts are real through a timing or storage side channel.
  */
 const loginAttemptSchema = new mongoose.Schema(
   {
-    email: { type: String, required: true, lowercase: true, trim: true, index: true },
+    /**
+     * The counter key, NOT the submitted identifier.
+     *
+     * `user:<id>` for a resolved account, so every identifier that reaches one
+     * account shares a single budget; `unknown:<sha256>` otherwise, so
+     * enumeration is bounded without the collection becoming a list of guessed
+     * usernames and emails.
+     */
+    key: { type: String, required: true, index: true },
     attemptedAt: { type: Date, required: true, default: () => new Date() },
   },
   { collection: 'login_attempts', versionKey: false },
 );
 
 // Compound index: every read is "failures for this email since T".
-loginAttemptSchema.index({ email: 1, attemptedAt: -1 });
+loginAttemptSchema.index({ key: 1, attemptedAt: -1 });
 
 /**
  * Mongo expires these on its own, so the collection cannot grow without bound

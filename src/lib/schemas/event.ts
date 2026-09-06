@@ -47,6 +47,8 @@ export const eventSchema = z.object({
   type: eventTypeSchema,
   entityType: entityTypeSchema,
   entityId: z.string().min(1),
+  /** The primary this event belongs to. Every read filters on it. */
+  ownerId: z.string().min(1),
   /** Type-specific detail. Deliberately loose: events are historical facts and
    *  their payload shape must be free to differ per type and across versions. */
   payload: z.record(z.string(), z.unknown()).default({}),

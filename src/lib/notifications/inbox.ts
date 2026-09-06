@@ -27,19 +27,23 @@ const MAX_ITEMS = 50;
  * Reading is what drives delivery, so the list a user opens is always current
  * rather than showing whatever the last request happened to flush.
  */
-export async function readInbox(now: Date = new Date()): Promise<{
+export async function readInbox(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<{
   items: InboxItem[];
   unread: number;
 }> {
   await connectToDatabase();
-  await deliverDue(now);
+  await deliverDue(ownerId, now);
 
-  const rows = await NotificationModel.find({ channel: 'in-app', status: 'sent' })
+  const rows = await NotificationModel.find({ ownerId, channel: 'in-app', status: 'sent' })
     .sort({ sentAt: -1 })
     .limit(MAX_ITEMS)
     .lean();
 
   const unread = await NotificationModel.countDocuments({
+    ownerId,
     channel: 'in-app',
     status: 'sent',
     readAt: null,
@@ -51,33 +55,42 @@ export async function readInbox(now: Date = new Date()): Promise<{
   };
 }
 
-export async function markRead(ids: string[], now: Date = new Date()): Promise<number> {
+export async function markRead(
+  ids: string[],
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<number> {
   if (ids.length === 0) return 0;
   await connectToDatabase();
 
   const result = await NotificationModel.updateMany(
-    { _id: { $in: ids }, readAt: null },
+    { _id: { $in: ids }, ownerId, readAt: null },
     { $set: { readAt: now } },
   );
 
   return result.modifiedCount ?? 0;
 }
 
-export async function markAllRead(now: Date = new Date()): Promise<number> {
+export async function markAllRead(ownerId: string, now: Date = new Date()): Promise<number> {
   await connectToDatabase();
 
   const result = await NotificationModel.updateMany(
-    { channel: 'in-app', status: 'sent', readAt: null },
+    { ownerId, channel: 'in-app', status: 'sent', readAt: null },
     { $set: { readAt: now } },
   );
 
   return result.modifiedCount ?? 0;
 }
 
-export async function unreadCount(): Promise<number> {
+export async function unreadCount(ownerId: string): Promise<number> {
   await connectToDatabase();
 
-  return NotificationModel.countDocuments({ channel: 'in-app', status: 'sent', readAt: null });
+  return NotificationModel.countDocuments({
+    ownerId,
+    channel: 'in-app',
+    status: 'sent',
+    readAt: null,
+  });
 }
 
 function toItem(

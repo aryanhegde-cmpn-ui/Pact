@@ -91,7 +91,11 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
     durationMs: 0,
   };
 
+  // Dispatch runs per primary; `userId` is that primary.
+  const ownerId = userId;
+
   const due = await NotificationModel.find({
+    ownerId,
     channel: 'web-push',
     status: 'pending',
     scheduledFor: { $lte: now },
@@ -102,7 +106,7 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
 
   report.scanned = due.length;
   if (due.length === 0) {
-    await recordDispatch(now);
+    await recordDispatch(ownerId, now);
     report.durationMs = Date.now() - startedAt;
     return report;
   }
@@ -111,7 +115,7 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
     ...new Set(due.map((row) => row.commitmentId).filter(Boolean)),
   ] as string[];
   const commitments = await CommitmentModel.find(
-    { _id: { $in: commitmentIds } },
+    { _id: { $in: commitmentIds }, ownerId },
     { status: 1, title: 1 },
   ).lean();
   const byId = new Map(commitments.map((c) => [String(c._id), c]));
@@ -136,7 +140,7 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
       // Claimed the same way, so a concurrent invocation cannot also skip it
       // and double-count.
       const claimed = await NotificationModel.updateOne(
-        { _id: row._id, status: 'pending' },
+        { _id: row._id, ownerId, status: 'pending' },
         { $set: { status: 'skipped', skipReason: decision.reason } },
       );
       if ((claimed.modifiedCount ?? 0) === 0) {
@@ -163,7 +167,7 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
      * noise, and noise is what teaches someone to ignore the app.
      */
     const claimed = await NotificationModel.updateOne(
-      { _id: row._id, status: 'pending' },
+      { _id: row._id, ownerId, status: 'pending' },
       { $set: { status: 'sent', sentAt: now } },
     );
 
@@ -183,14 +187,14 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
     report.pushFailed += send.failed;
 
     await NotificationModel.updateOne(
-      { _id: row._id },
+      { _id: row._id, ownerId },
       // Recorded per notification so a debugging session can tell "nothing was
       // sent" from "sent, but every subscription was dead".
       { $set: { deliveryOutcomes: send.outcomes } },
     );
   }
 
-  await recordDispatch(now);
+  await recordDispatch(ownerId, now);
   report.durationMs = Date.now() - startedAt;
 
   return report;
@@ -204,10 +208,10 @@ export async function dispatchDue(userId: string, now: Date = new Date()): Promi
  * stop for a week and the only symptom is notifications quietly not arriving
  * -- which is indistinguishable from having nothing due.
  */
-export async function recordDispatch(now: Date): Promise<void> {
+export async function recordDispatch(ownerId: string, now: Date): Promise<void> {
   await SettingsModel.updateOne(
-    { key: 'singleton' },
-    { $set: { lastDispatchAt: now } },
+    { ownerId },
+    { $set: { ownerId, lastDispatchAt: now } },
     { upsert: true },
   );
 }

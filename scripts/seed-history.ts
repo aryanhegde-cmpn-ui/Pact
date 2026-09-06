@@ -73,6 +73,18 @@ async function main(): Promise<void> {
   const timeZone = env.APP_TIMEZONE;
   await connectToDatabase();
 
+  /**
+   * Synthetic history belongs to the primary, like everything else. Resolved
+   * rather than assumed so seeding cannot silently create unowned rows, which
+   * would be invisible to every scoped query.
+   */
+  const { UserModel } = await import('@/lib/db/models/user');
+  const primary = await UserModel.findOne({ role: 'primary' }, { _id: 1 }).lean();
+  if (!primary) {
+    throw new Error('No primary user. Run `npm run seed:user` first.');
+  }
+  const ownerId = String(primary._id);
+
   if (process.argv.includes('--reset')) {
     // Checked against the connection string, not NODE_ENV.
     assertSafeToMutate(env.MONGODB_URI, 'seed:history --reset');
@@ -81,7 +93,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`Seeding ${days} days of "${pattern}" history (~${perDay}/day, ${timeZone})...`);
-  const summary = await seedHistory({ pattern, days, perDay, timeZone, seed });
+  const summary = await seedHistory({ ownerId, pattern, days, perDay, timeZone, seed });
 
   console.log('');
   console.log(`  commitments   ${summary.commitments}`);

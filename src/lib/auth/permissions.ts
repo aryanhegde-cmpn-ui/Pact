@@ -1,0 +1,144 @@
+/**
+ * The permission matrix.
+ *
+ * ONE module. Every route guard derives from this table rather than testing
+ * `role === 'overseer'` inline. Scattered role checks are how a new route ends
+ * up with a subtly different rule, and how the fifteenth handler is the one
+ * that forgot — which is the same failure mode the dueAt scanner exists to
+ * prevent.
+ *
+ * Not `server-only`: the client needs it to decide what to render, and it
+ * contains no secrets. Rendering is a convenience; the server enforces.
+ */
+
+export type Role = 'primary' | 'overseer';
+
+/**
+ * Capabilities, named for what they let you do rather than which route they
+ * sit behind. A route can move without the matrix changing.
+ */
+export type Capability =
+  // --- The work itself -----------------------------------------------------
+  | 'commitment:read'
+  | 'commitment:write'
+  | 'series:read'
+  | 'series:write'
+  | 'reckoning:submit'
+  | 'session:read'
+  | 'session:write'
+  // --- The record ----------------------------------------------------------
+  /** Completion state, misses, deadline changes, reckoning CATEGORIES. */
+  | 'progress:read'
+  /** Free-text notes on commitments and reckonings. Gated by a setting. */
+  | 'notes:read'
+  /** The raw append-only log. Nobody gets this over HTTP. */
+  | 'events:read'
+  // --- Stakes --------------------------------------------------------------
+  | 'consequence:read'
+  | 'consequence:write'
+  // --- The arrangement -----------------------------------------------------
+  | 'relationship:invite'
+  | 'relationship:revoke'
+  | 'settings:read'
+  | 'settings:write';
+
+/**
+ * The matrix.
+ *
+ * Read it as: this role may do exactly these things, and nothing else.
+ */
+const MATRIX: Record<Role, readonly Capability[]> = {
+  /**
+   * The person doing the work.
+   *
+   * Note what is ABSENT: `consequence:write`. The primary has no write path to
+   * reward or consequence configuration -- not a hidden route, not a field
+   * quietly ignored. A route must REJECT it. An arrangement whose subject can
+   * edit their own consequences is not an arrangement, and building the
+   * permission surface now means the later consequence PR slots into it rather
+   * than inventing its own rules.
+   */
+  primary: [
+    'commitment:read',
+    'commitment:write',
+    'series:read',
+    'series:write',
+    'reckoning:submit',
+    'session:read',
+    'session:write',
+    'progress:read',
+    'notes:read',
+    'consequence:read',
+    'relationship:invite',
+    'relationship:revoke',
+    'settings:read',
+    'settings:write',
+  ],
+
+  /**
+   * The person holding the stakes.
+   *
+   * Read access to the record, write access to consequences, and nothing else.
+   *
+   * `notes:read` is absent and granted conditionally -- see
+   * `canReadNotes`. `session:read` is absent because focus session contents
+   * are the primary's working material, not evidence. `events:read` is absent
+   * for everyone: the raw log is exposed through purpose-built read models
+   * instead, which is both safer and simpler than filtering events per role at
+   * every call site.
+   */
+  overseer: ['progress:read', 'consequence:read', 'consequence:write'],
+};
+
+/** Whether a role holds a capability outright. */
+export function can(role: Role, capability: Capability): boolean {
+  return MATRIX[role].includes(capability);
+}
+
+/**
+ * Whether an overseer may read free text.
+ *
+ * The default is NO, and it is a deliberate product decision rather than a
+ * conservative default. Structured categories are always visible, and that is
+ * where the accountability value is: "missed, avoidance, three times" is the
+ * fact worth acting on.
+ *
+ * The free text is where the primary is honest with themselves -- and they
+ * will be less honest if they know it is read. Making it opt-in keeps the
+ * useful signal and protects the thing that produces it.
+ */
+export function canReadNotes(role: Role, primaryAllowsNoteSharing: boolean): boolean {
+  if (role === 'primary') return true;
+
+  return primaryAllowsNoteSharing;
+}
+
+/** Every capability, for exhaustive tests over the matrix. */
+export const ALL_CAPABILITIES: readonly Capability[] = [
+  'commitment:read',
+  'commitment:write',
+  'series:read',
+  'series:write',
+  'reckoning:submit',
+  'session:read',
+  'session:write',
+  'progress:read',
+  'notes:read',
+  'events:read',
+  'consequence:read',
+  'consequence:write',
+  'relationship:invite',
+  'relationship:revoke',
+  'settings:read',
+  'settings:write',
+];
+
+export const ALL_ROLES: readonly Role[] = ['primary', 'overseer'];
+
+/**
+ * Capabilities nobody has over HTTP.
+ *
+ * Kept as an explicit list so "no route exposes this" is a testable claim
+ * rather than an absence someone has to notice.
+ */
+export const UNGRANTED_CAPABILITIES: readonly Capability[] = ['events:read'];

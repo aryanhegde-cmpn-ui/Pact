@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { unsubscribeHere } from '@/components/pwa/push-subscription';
+import { OverseerSection } from './overseer-section';
 
 interface Settings {
+  shareNotesWithOverseer: boolean;
   quietHoursStart: string;
   quietHoursEnd: string;
   dailyReviewAt: string;
@@ -82,6 +84,11 @@ export function NotificationSettings({ initial }: { initial: Settings }): React.
 
   return (
     <div className="flex flex-col gap-xl">
+      <OverseerSection
+        shareNotes={settings.shareNotesWithOverseer}
+        onShareNotesChange={(next) => void save({ shareNotesWithOverseer: next })}
+      />
+
       <Section title="Notification types">
         <ul className="flex flex-col gap-sm">
           {TYPES.map(([type, label, hint]) => {

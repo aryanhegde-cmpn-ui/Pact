@@ -4,7 +4,7 @@ import { changeDeadline } from '@/lib/commitments/deadline';
 import { appendEvent } from '@/lib/db/events';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import type { Priority } from '@/lib/schemas/commitment';
-import type { DeadlineChangeCategory } from '@/lib/schemas/reckoning';
+import type { DeadlineChangeCategory, MissReason, RecoveryAction } from '@/lib/schemas/reckoning';
 import { addDays, toDateKey, zonedTimeToUtc, type DateKey } from '@/lib/time';
 
 /**
@@ -98,6 +98,33 @@ const TITLES = [
 const PRIORITIES: Priority[] = ['must-win', 'important', 'maintenance'];
 
 /** Free-text reason paired with the category it belongs to. */
+/**
+ * Reckoning answers paired with the recovery they lead to.
+ *
+ * Matched pairs rather than independent draws, so the synthetic history is
+ * coherent: "too vague" leading to "schedule a start session" is a shape the
+ * real flow would never produce.
+ */
+/** Concrete next actions, for the recoveries that require one. */
+const SEED_NEXT_ACTIONS = [
+  'Write the first paragraph',
+  'Open the file and list the sections',
+  'Send the one email that unblocks it',
+  'Sketch the outline on paper',
+  'Read the first page of the spec',
+] as const;
+
+const SEED_RECKONINGS: readonly (readonly [MissReason, RecoveryAction])[] = [
+  ['underestimated', 'reduce-scope'],
+  ['too-vague', 'define-next-action'],
+  ['avoided', 'schedule-start-session'],
+  ['didnt-know-how-to-start', 'define-starting-action'],
+  ['waiting-on-someone', 'mark-blocked'],
+  ['higher-priority-appeared', 'reduce-scope'],
+  ['perfectionism', 'lower-quality-bar'],
+  ['forgot', 'schedule-start-session'],
+] as const;
+
 const POSTPONEMENT_REASONS: readonly (readonly [string, DeadlineChangeCategory])[] = [
   ['Ran out of time', 'underestimated'],
   ['Underestimated how long it would take', 'underestimated'],
@@ -126,6 +153,8 @@ function makeRandom(seed: number): () => number {
 }
 
 export interface SeedOptions {
+  /** The primary this synthetic history belongs to. */
+  ownerId: string;
   pattern: PatternName;
   days: number;
   perDay: number;
@@ -172,7 +201,7 @@ export async function seedHistory(options: SeedOptions): Promise<SeedSummary> {
           ? PATTERNS[pick(['chronic-postponer', 'late-night-misser', 'steady'] as const)]
           : PATTERNS[options.pattern];
 
-      await seedOne(date, pattern, options.timeZone, random, pick, summary);
+      await seedOne(date, pattern, options.timeZone, options.ownerId, random, pick, summary);
     }
   }
 
@@ -183,6 +212,7 @@ async function seedOne(
   date: DateKey,
   pattern: SeedPattern,
   timeZone: string,
+  ownerId: string,
   random: () => number,
   pick: <T>(items: readonly T[]) => T,
   summary: SeedSummary,
@@ -208,6 +238,7 @@ async function seedOne(
     completedAt: null,
     notes: '',
     synthetic: true,
+    ownerId,
   });
 
   const entityId = String(doc._id);
@@ -217,6 +248,7 @@ async function seedOne(
     type: 'COMMITMENT_CREATED',
     entityType: 'commitment',
     entityId,
+    ownerId,
     ts: createdAt,
     source: 'seed',
     payload: { title, outcome, estimateMinutes },
@@ -225,6 +257,7 @@ async function seedOne(
     type: 'DEADLINE_SET',
     entityType: 'commitment',
     entityId,
+    ownerId,
     ts: createdAt,
     source: 'seed',
     payload: { dueAt: originalDueAt.toISOString() },
@@ -256,6 +289,7 @@ async function seedOne(
           type: 'DEADLINE_MISSED',
           entityType: 'commitment',
           entityId,
+          ownerId,
           ts: previous,
           source: 'seed',
           payload: { dueAt: previous.toISOString(), postponedAfterwards: true },
@@ -269,6 +303,70 @@ async function seedOne(
         : new Date(previous.getTime() - random() * 3_600_000);
       dueAt = new Date(previous.getTime() + (12 + random() * 36) * 3_600_000);
 
+      /**
+       * A missed deadline must be reckoned with before it can move.
+       *
+       * That is the product rule, and the seed obeys it rather than working
+       * around it -- synthetic history that could not have been produced by
+       * the real app is worse than none, because the behaviour engine would
+       * learn from a shape the app cannot generate.
+       *
+       * It is also the more realistic sequence: you miss it, you answer for
+       * it, and then you pick a new date. And it gives the engine the
+       * reckoning data it needs, which a bare postponement chain does not.
+       */
+      if (movedAfterMissing) {
+        const [reckonReason, recoveryAction] = pick(SEED_RECKONINGS);
+        const reckonedAt = new Date(previous.getTime() + 0.25 * 3_600_000);
+
+        await appendEvent({
+          type: 'RECKONING_SUBMITTED',
+          entityType: 'commitment',
+          entityId,
+          ownerId,
+          // Stamped at the missed deadline, like the miss itself: that is what
+          // the uniqueness key means and what makes a second miss recordable.
+          ts: previous,
+          source: 'seed',
+          payload: {
+            missedDeadline: previous.toISOString(),
+            completed: false,
+            reason: reckonReason,
+            note: null,
+            recovery: recoveryAction,
+            submittedAt: reckonedAt.toISOString(),
+          },
+        });
+        await appendEvent({
+          type: 'RECOVERY_ACTION_SELECTED',
+          entityType: 'commitment',
+          entityId,
+          ownerId,
+          ts: reckonedAt,
+          source: 'seed',
+          payload: { action: recoveryAction, reason: reckonReason },
+        });
+        /**
+         * Apply the recovery's effect, not just its record.
+         *
+         * `define-next-action` GATES rescheduling until the field is set --
+         * that is the whole point of it. Recording the choice without the
+         * effect produces history the real app could not have created, and
+         * the deadline change immediately below would be refused.
+         */
+        if (
+          recoveryAction === 'define-next-action' ||
+          recoveryAction === 'define-starting-action'
+        ) {
+          await CommitmentModel.updateOne(
+            { _id: entityId, ownerId },
+            { $set: { nextAction: pick(SEED_NEXT_ACTIONS) } },
+          );
+        }
+
+        summary.events += 2;
+      }
+
       // Through the one permitted writer, exactly as a real postponement is.
       // Seeding is not a licence to write `dueAt` directly.
       /**
@@ -279,7 +377,13 @@ async function seedOne(
        */
       const [reason, category] = pick(POSTPONEMENT_REASONS);
 
-      await changeDeadline(entityId, { newDueAt: dueAt, reason, category }, movedAt, 'seed');
+      await changeDeadline(
+        entityId,
+        { newDueAt: dueAt, reason, category },
+        ownerId,
+        movedAt,
+        'seed',
+      );
       void previous;
       summary.postponements += 1;
       summary.events += 1;
@@ -297,7 +401,7 @@ async function seedOne(
     const startedAt = new Date(completedAt.getTime() - estimateMinutes * 60_000 * (0.6 + random()));
 
     await CommitmentModel.updateOne(
-      { _id: entityId },
+      { _id: entityId, ownerId },
       { $set: { status: 'done', startedAt, completedAt } },
     );
 
@@ -305,6 +409,7 @@ async function seedOne(
       type: 'COMMITMENT_STARTED',
       entityType: 'commitment',
       entityId,
+      ownerId,
       ts: startedAt,
       source: 'seed',
       payload: {},
@@ -317,6 +422,7 @@ async function seedOne(
         type: 'DEADLINE_MISSED',
         entityType: 'commitment',
         entityId,
+        ownerId,
         ts: dueAt,
         source: 'seed',
         payload: { dueAt: dueAt.toISOString() },
@@ -330,6 +436,7 @@ async function seedOne(
       type: 'COMMITMENT_COMPLETED',
       entityType: 'commitment',
       entityId,
+      ownerId,
       ts: completedAt,
       source: 'seed',
       payload: {
@@ -351,6 +458,7 @@ async function seedOne(
     type: 'DEADLINE_MISSED',
     entityType: 'commitment',
     entityId,
+    ownerId,
     ts: dueAt,
     source: 'seed',
     payload: { dueAt: dueAt.toISOString() },
@@ -361,11 +469,12 @@ async function seedOne(
   if (random() < pattern.abandonRate) {
     const abandonedAt = new Date(dueAt.getTime() + (1 + random() * 48) * 3_600_000);
 
-    await CommitmentModel.updateOne({ _id: entityId }, { $set: { status: 'abandoned' } });
+    await CommitmentModel.updateOne({ _id: entityId, ownerId }, { $set: { status: 'abandoned' } });
     await appendEvent({
       type: 'COMMITMENT_ABANDONED',
       entityType: 'commitment',
       entityId,
+      ownerId,
       ts: abandonedAt,
       source: 'seed',
       payload: {

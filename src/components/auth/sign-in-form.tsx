@@ -13,16 +13,16 @@ import { safeReturnTo } from '@/lib/auth/return-to';
  * locked account are indistinguishable here because they are indistinguishable
  * on the server -- see GENERIC_AUTH_ERROR in src/lib/auth.
  */
-const GENERIC_ERROR = 'Email or password is incorrect.';
+const GENERIC_ERROR = 'Username or password is incorrect.';
 
 interface FieldErrors {
-  email?: string;
+  identifier?: string;
   password?: string;
 }
 
 export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Element {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -30,9 +30,10 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
 
   function validate(): boolean {
     const errors: FieldErrors = {};
-    if (!email.trim()) errors.email = 'Enter your email address.';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      errors.email = 'That does not look like an email address.';
+    // Only "is it empty". The shape is NOT validated here: rejecting a
+    // malformed identifier client-side would tell an attacker which forms are
+    // even considered, and the server treats every failure identically anyway.
+    if (!identifier.trim()) errors.identifier = 'Enter your username or email.';
     if (!password) errors.password = 'Enter your password.';
 
     setFieldErrors(errors);
@@ -47,7 +48,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
     setSubmitting(true);
     try {
       const result = await signIn('credentials', {
-        email: email.trim(),
+        identifier: identifier.trim(),
         password,
         redirect: false,
       });
@@ -72,24 +73,28 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
   return (
     <form onSubmit={handleSubmit} noValidate className="flex w-full flex-col gap-md">
       <div className="flex flex-col gap-xs">
-        <label htmlFor="email" className="text-sm text-text/70">
-          Email
+        <label htmlFor="identifier" className="text-sm text-text/70">
+          Username or email
         </label>
         <input
-          id="email"
-          name="email"
-          type="email"
+          id="identifier"
+          name="identifier"
+          // `text`, not `email`: the browser would otherwise reject a perfectly
+          // valid username before the form is submitted.
+          type="text"
           autoComplete="username"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          aria-invalid={Boolean(fieldErrors.email)}
-          aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+          autoCapitalize="none"
+          spellCheck={false}
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          aria-invalid={Boolean(fieldErrors.identifier)}
+          aria-describedby={fieldErrors.identifier ? 'identifier-error' : undefined}
           className="rounded border border-edge bg-surface px-md py-sm text-text outline-none focus:border-signal disabled:opacity-50"
           disabled={submitting}
         />
-        {fieldErrors.email ? (
-          <p id="email-error" className="text-sm text-signal">
-            {fieldErrors.email}
+        {fieldErrors.identifier ? (
+          <p id="identifier-error" className="text-signal text-sm">
+            {fieldErrors.identifier}
           </p>
         ) : null}
       </div>

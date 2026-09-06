@@ -25,7 +25,9 @@
     "icons": "node scripts/generate-icons.mjs",
     "db:indexes": "NODE_OPTIONS=--conditions=react-server tsx scripts/sync-indexes.ts",
     "db:migrate:miss-index": "NODE_OPTIONS=--conditions=react-server tsx scripts/migrate-miss-index.ts",
-    "vapid:generate": "tsx scripts/generate-vapid.ts"
+    "vapid:generate": "tsx scripts/generate-vapid.ts",
+    "db:migrate:identity": "NODE_OPTIONS=--conditions=react-server tsx scripts/migrate-identity.ts",
+    "change:username": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-username.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",

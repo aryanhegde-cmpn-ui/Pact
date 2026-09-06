@@ -14,7 +14,13 @@ import { safeReturnTo } from '@/lib/auth/return-to';
 export const SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 
 /** Routes that require a session. Everything else is public. */
-export const PROTECTED_PREFIXES = ['/dashboard', '/study'] as const;
+export const PROTECTED_PREFIXES = [
+  '/dashboard',
+  '/study',
+  '/settings',
+  '/postponements',
+  '/overseer',
+] as const;
 
 export function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some(
@@ -85,7 +91,15 @@ export const authConfig = {
       if (user) {
         token.userId = user.id ?? token.sub;
         token.displayName = user.name ?? null;
-        token.role = (user as { role?: string }).role ?? 'owner';
+        token.username = (user as { username?: string }).username;
+        token.role = (user as { role?: string }).role ?? 'primary';
+        /**
+         * Carried in the token so the common case needs no lookup. It is safe
+         * to trust for SCOPING -- it only ever narrows a query -- but never for
+         * authorisation of an overseer, whose relationship is re-checked per
+         * request because revocation must be immediate.
+         */
+        token.ownerId = (user as { ownerId?: string }).ownerId ?? user.id ?? undefined;
       }
       return token;
     },
@@ -94,7 +108,10 @@ export const authConfig = {
       if (session.user) {
         session.user.id = (token.userId as string | undefined) ?? token.sub ?? '';
         session.user.name = (token.displayName as string | null | undefined) ?? null;
-        session.user.role = (token.role as string | undefined) ?? 'owner';
+        session.user.username = token.username as string | undefined;
+        session.user.role = (token.role as string | undefined) ?? 'primary';
+        session.user.ownerId =
+          (token.ownerId as string | undefined) ?? (token.userId as string | undefined);
       }
       return session;
     },

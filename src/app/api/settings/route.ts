@@ -1,5 +1,4 @@
-import { auth } from '@/lib/auth';
-import { jsonError, jsonOk, readJson, translateError } from '@/lib/api/guard';
+import { jsonOk, readJson, requireCapability } from '@/lib/api/guard';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getSettings, updateSettings } from '@/lib/notifications/settings';
 import { updateSettingsSchema } from '@/lib/schemas/notification';
@@ -7,28 +6,18 @@ import { updateSettingsSchema } from '@/lib/schemas/notification';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
-
-  try {
+export const GET = requireCapability('settings:read', async (actor) => {
+  {
     await connectToDatabase();
-    return jsonOk(await getSettings());
-  } catch (error) {
-    return translateError(error);
+    return jsonOk(await getSettings(actor.ownerId));
   }
-}
+});
 
-export async function PATCH(request: Request): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
-
-  try {
+export const PATCH = requireCapability('settings:write', async (actor, request) => {
+  {
     const input = updateSettingsSchema.parse(await readJson(request));
     await connectToDatabase();
 
-    return jsonOk(await updateSettings(input));
-  } catch (error) {
-    return translateError(error);
+    return jsonOk(await updateSettings(input, actor.ownerId));
   }
-}
+});

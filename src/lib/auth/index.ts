@@ -13,7 +13,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: {
-        email: { label: 'Email', type: 'email' },
+        // One field, accepting either form.
+        identifier: { label: 'Username or email', type: 'text' },
         password: { label: 'Password', type: 'password' },
       },
       authorize: (credentials) => authorizeCredentials(credentials),

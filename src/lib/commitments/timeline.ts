@@ -38,13 +38,13 @@ export interface Timeline {
  * behaviour has to be traceable to lines here, which is the difference between
  * an accountability tool and an opinion.
  */
-export async function buildTimeline(commitmentId: string): Promise<Timeline> {
+export async function buildTimeline(commitmentId: string, ownerId: string): Promise<Timeline> {
   await connectToDatabase();
 
-  const commitment = await CommitmentModel.findById(commitmentId).lean();
+  const commitment = await CommitmentModel.findOne({ _id: commitmentId, ownerId }).lean();
   if (!commitment) throw new CommitmentError('No such commitment.', 404);
 
-  const events = await readEntityEvents(commitmentId);
+  const events = await readEntityEvents(commitmentId, ownerId);
 
   return {
     commitmentId,
@@ -204,22 +204,22 @@ export interface PostponementGroups {
  * The grouping is the point. One postponement is life; three is a pattern, and
  * the honest response to a pattern is not a fourth new date.
  */
-export async function listPostponements(): Promise<PostponementGroups> {
+export async function listPostponements(ownerId: string): Promise<PostponementGroups> {
   await connectToDatabase();
 
   // Only entities that actually have a deadline change, so this does not scan
   // the whole collection to find the handful that matter.
   const changed = await EventModel.aggregate<{ _id: string }>([
-    { $match: { type: 'DEADLINE_CHANGED' } },
+    { $match: { ownerId, type: 'DEADLINE_CHANGED' } },
     { $group: { _id: '$entityId' } },
   ]);
 
   const ids = changed.map((row) => row._id);
   if (ids.length === 0) return { once: [], twice: [], chronic: [] };
 
-  const commitments = await CommitmentModel.find({ _id: { $in: ids } }).lean();
+  const commitments = await CommitmentModel.find({ _id: { $in: ids }, ownerId }).lean();
   const events = await EventModel.find(
-    { entityId: { $in: ids }, type: 'DEADLINE_CHANGED' },
+    { ownerId, entityId: { $in: ids }, type: 'DEADLINE_CHANGED' },
     { entityId: 1, ts: 1, type: 1, payload: 1 },
   )
     .sort({ ts: 1 })

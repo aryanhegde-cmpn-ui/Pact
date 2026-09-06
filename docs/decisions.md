@@ -542,3 +542,143 @@ than a silent no-op.
 - `define-next-action` additionally _gates_ rescheduling: the concrete action
   must exist before a new deadline can be set. A recovery that is merely
   advisory would be advice.
+
+## 015 — The lockout counter keys on the account, not the identifier
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+Failed sign-in attempts are counted against `user:<id>` once the identifier
+resolves, and against `unknown:<sha256(identifier)>` when it does not. The
+submitted string is never the key.
+
+### Why
+
+The moment one account is reachable by two identifiers, a per-string counter
+gives an attacker two budgets. Five guesses at `aryan` and five at
+`aryan@example.com` is ten attempts against one account with no lockout, and
+adding a third identifier later would make it fifteen. The counter has to key
+on the thing under attack, which is the account.
+
+Unresolved identifiers still need a counter or enumeration is unlimited and
+free. They are hashed so the collection does not become the list of guessed
+usernames and addresses an attacker was trying to assemble.
+
+The two namespaces cannot collide: ids and hex digests are disjoint by
+construction.
+
+### Consequences
+
+- The identifier must be resolved _before_ the lockout is checked, which is a
+  database read on every attempt including hopeless ones. That is the cost of
+  the property and it is small.
+- Unknown username, unknown email, wrong password and locked-out still return
+  one byte-identical response. Nothing above changes that.
+
+## 016 — Ownership is a column on every collection, enforced by a scanner
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+Every scoped collection carries `ownerId`, and every query filters on it. A
+test scans the source and fails on any query against a scoped model whose call
+text lacks an ownership filter.
+
+### Why
+
+Doing this before the curriculum PR rather than after. That change triples the
+number of collections, and retrofitting ownership across all of them means
+auditing every query written in the meantime — whereas doing it now means the
+new collections are born with the column and the scanner catches the first one
+that is not.
+
+The scanner rather than review, for the same reason the `dueAt` writer scanner
+exists: "no query anywhere does X" is a property of the whole codebase, and a
+behavioural test only proves it for the handlers someone remembered to call.
+The dangerous route is always the new one. That scanner has already caught two
+real regressions.
+
+It is deliberately crude — it reads the text of the call, so a scope applied
+three lines later in a variable still reads as unscoped. That produces
+occasional false positives, which cost a comment, and no false negatives, which
+would cost a data leak.
+
+### Consequences
+
+- Service functions take `ownerId` explicitly rather than reading it from
+  ambient context. Verbose, and it means a caller cannot forget.
+- An unowned row matches no scoped query, so it becomes invisible rather than
+  leaking — the right way round, but it does mean the backfill migration is
+  mandatory before a deploy.
+
+## 017 — One permission matrix, and no route may bypass it
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`src/lib/auth/permissions.ts` holds a capability matrix. Every route guard
+derives from it through `requireCapability`. A test fails on any route without
+a guard and on any inline `role === '...'` comparison.
+
+The primary has no `consequence:write` capability. The overseer has no write
+capability except that one, no `session:read`, and no `events:read` — which
+nobody has.
+
+### Why
+
+Scattered role checks are how the fifteenth handler ends up subtly different
+from the other fourteen, and nothing notices because each one looks reasonable
+in isolation.
+
+The primary's exclusion from consequence configuration is the load-bearing
+rule: an arrangement whose subject can edit their own consequences is not an
+arrangement. Establishing the permission surface before consequences exist
+means that PR slots into it rather than inventing its own rules — which is
+precisely when a "temporary" self-service path gets added.
+
+Nobody gets the raw event log over HTTP. The overseer reads a purpose-built
+projection instead. A filtered log exposes every future event type by default
+and has to be remembered about; a projection exposes only what someone
+deliberately put in it.
+
+### Consequences
+
+- Adding a capability means editing one file and one table.
+- A new route without a guard fails a test rather than shipping open.
+- The overseer's view is a separate read model to maintain. That is the cost,
+  and it is the safer half of the trade.
+
+## 018 — Free-text notes are private by default
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+The overseer sees structured categories always, and free-text notes only if the
+primary opts in. Default off.
+
+### Why
+
+The categories carry the accountability value. "Missed, avoidance, three times"
+is the fact worth acting on, and it is countable.
+
+The free text is where the primary is honest with themselves — and they will be
+less honest if they know it is read. Making notes visible by default would
+quietly degrade the quality of the one input the whole behavioural layer
+depends on, in exchange for detail the overseer does not need.
+
+Opt-in keeps both: the useful signal, and the conditions that produce it.
+
+### Consequences
+
+- The overseer projection omits the field entirely rather than sending an empty
+  string, so a client cannot mistake "not shared" for "they wrote nothing".
+- The setting is `settings:write`, which the overseer does not hold. They
+  cannot grant themselves access to it.

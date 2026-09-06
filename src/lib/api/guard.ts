@@ -3,6 +3,8 @@ import 'server-only';
 import { ZodError } from 'zod';
 
 import { auth } from '@/lib/auth';
+import { can, type Capability, type Role } from '@/lib/auth/permissions';
+import { connectToDatabase } from '@/lib/db/mongoose';
 import { CommitmentError } from '@/lib/commitments/service';
 import { DeadlineError } from '@/lib/commitments/deadline';
 import { EnvironmentError } from '@/lib/env';
@@ -28,6 +30,100 @@ export function jsonOk(body: unknown, status = 200): Response {
  * on one handler is the realistic failure mode, and it is invisible until
  * someone finds the endpoint.
  */
+export interface Actor {
+  userId: string;
+  role: Role;
+  /** The primary whose data this request may touch. ALWAYS the query scope. */
+  ownerId: string;
+}
+
+/**
+ * Resolves the caller, or null when unauthenticated.
+ *
+ * `ownerId` is the important field. Every scoped query filters on it, so an
+ * overseer reading commitments and a primary reading their own run the same
+ * query with a different value -- rather than two code paths, one of which
+ * eventually forgets the filter.
+ */
+export async function currentActor(): Promise<Actor | null> {
+  const session = await auth();
+  if (!session?.user) return null;
+
+  const role = (session.user.role ?? 'primary') as Role;
+
+  return {
+    userId: session.user.id,
+    role,
+    ownerId: session.user.ownerId ?? session.user.id,
+  };
+}
+
+/**
+ * Guards a handler by CAPABILITY, never by role.
+ *
+ * The capability comes from the matrix in src/lib/auth/permissions.ts, so a
+ * rule change is one edit there rather than a search for every `role ===`
+ * comparison. A handler that needs to know the role has almost certainly
+ * misidentified what it is actually checking.
+ *
+ * An overseer's relationship is re-checked on EVERY request rather than
+ * trusted from the session, because revocation has to take effect immediately
+ * -- a JWT issued before revocation would otherwise keep working until it
+ * expired, which for a 90-day session is not a revocation at all.
+ */
+export function requireCapability(
+  capability: Capability,
+  handler: (actor: Actor, request: Request, context: RouteContext) => Promise<Response>,
+): (request: Request, context: RouteContext) => Promise<Response> {
+  return async (request, context) => {
+    const actor = await currentActor();
+    if (!actor) return jsonError('Sign in required.', 401);
+
+    if (!can(actor.role, capability)) {
+      // Deliberately terse and identical for every denial: an error that names
+      // the capability tells a caller what exists.
+      return jsonError('Not permitted.', 403);
+    }
+
+    if (actor.role === 'overseer') {
+      const live = await relationshipIsActive(actor.userId, actor.ownerId);
+      if (!live) return jsonError('Not permitted.', 403);
+    }
+
+    try {
+      return await handler(actor, request, context ?? { params: Promise.resolve({}) });
+    } catch (error) {
+      return translateError(error);
+    }
+  };
+}
+
+export interface RouteContext {
+  params: Promise<Record<string, string>>;
+}
+
+/**
+ * Whether an overseer's arrangement is still in force.
+ *
+ * Read per request. See the note on requireCapability: a session outlives a
+ * revocation, so the session cannot be the source of truth for it.
+ */
+async function relationshipIsActive(
+  overseerUserId: string,
+  primaryUserId: string,
+): Promise<boolean> {
+  const { RelationshipModel } = await import('@/lib/db/models/relationship');
+  await connectToDatabase();
+
+  const active = await RelationshipModel.findOne({
+    overseerUserId,
+    primaryUserId,
+    status: 'active',
+  }).lean();
+
+  return active !== null;
+}
+
 export function withSession(
   handler: (context: { userId: string; now: Date }) => Promise<Response>,
 ): () => Promise<Response> {

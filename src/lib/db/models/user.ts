@@ -19,9 +19,31 @@ const userSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    /** The display form, as chosen. */
+    username: { type: String, required: true, trim: true },
+    /**
+     * Lowercased, and the field every lookup and the unique index use.
+     *
+     * A normalised column rather than a collated index: it behaves the same
+     * across drivers, survives dump and restore, and is visible in the
+     * document. A collation applies only when a query asks for it and silently
+     * degrades to case-sensitive when it does not -- which would let "Aryan"
+     * and "aryan" both exist.
+     */
+    usernameLower: { type: String, required: true, unique: true, index: true },
+
     passwordHash: { type: String, required: true, select: false },
     displayName: { type: String, required: true, trim: true },
-    role: { type: String, required: true, enum: ['owner', 'member'], default: 'owner' },
+    role: { type: String, required: true, enum: ['primary', 'overseer'], default: 'primary' },
+
+    /**
+     * The primary this account's data belongs to.
+     *
+     * For a primary it is their own id; for an overseer it is the primary they
+     * were invited by. Every other collection carries the same field, so a
+     * query is scoped by one predicate regardless of who is asking.
+     */
+    ownerId: { type: String, default: null, index: true },
     createdAt: { type: Date, required: true, default: () => new Date() },
     lastLoginAt: { type: Date, default: null },
   },
