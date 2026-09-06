@@ -1,9 +1,11 @@
 import 'server-only';
 
+import mongoose from 'mongoose';
+
 import { occurrenceDatesInRange } from '@/lib/behavior/recurrence';
 import { loadPlanContext, planForBlock } from '@/lib/curriculum/plan';
-import { appendEvent } from '@/lib/db/events';
-import { enqueueForCommitment } from '@/lib/notifications/queue';
+import { appendEvents } from '@/lib/db/events';
+import { enqueueForCommitments, type CommitmentForQueue } from '@/lib/notifications/queue';
 import { getSettings } from '@/lib/notifications/settings';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { SeriesModel } from '@/lib/db/models/series';
@@ -14,10 +16,28 @@ import { addDays, zonedTimeToUtc, type DateKey } from '@/lib/time';
 
 const DUPLICATE_KEY = 11_000;
 
-function isDuplicateKeyError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'code' in error && error.code === DUPLICATE_KEY
-  );
+/**
+ * Indexes an `insertMany` rejected, or null if any rejection was not a
+ * duplicate key.
+ *
+ * Null means throw. Concurrent invocations racing on the unique index is the
+ * expected case and is success; anything else is a real failure that must not
+ * be counted as "another request got there first".
+ */
+function duplicateIndexes(error: unknown): number[] | null {
+  const errors = (error as { writeErrors?: unknown }).writeErrors;
+  if (!Array.isArray(errors) || errors.length === 0) return null;
+
+  const indexes: number[] = [];
+  for (const entry of errors) {
+    const row = entry as { index?: number; code?: number; err?: { index?: number; code?: number } };
+    const code = row.code ?? row.err?.code ?? 0;
+    if (code !== DUPLICATE_KEY) return null;
+
+    indexes.push(row.index ?? row.err?.index ?? -1);
+  }
+
+  return indexes;
 }
 
 export interface MaterialiseResult {
@@ -38,9 +58,28 @@ export interface MaterialiseResult {
  * fortnight appear -- without it, occurrences would only ever exist for windows
  * someone had already looked at.
  *
- * Concurrency is handled by the unique index on (seriesId, occurrenceDate)
- * rather than by checking-then-writing, which races between the two steps. A
- * duplicate-key error means another request created it first, which is success.
+ * ---------------------------------------------------------------------------
+ * THE COST IS PER RANGE, NOT PER OCCURRENCE.
+ * ---------------------------------------------------------------------------
+ * This used to write one occurrence at a time: a commitment, two events and six
+ * notification rows, nine round trips each. A fortnight of three daily study
+ * blocks is around 45 occurrences, and against Atlas M0 that measured 34
+ * seconds -- past a Vercel Hobby function's entire budget, and getting worse as
+ * the study plan extends towards January.
+ *
+ * It is now a fixed number of queries whatever the range: one read of what
+ * exists, then one bulk insert each for commitments, events and notifications.
+ * There is a test asserting that count does not scale with the number of
+ * occurrences, because this is the kind of thing that regresses invisibly --
+ * the code keeps working, it just gets slower until something times out.
+ *
+ * Concurrency is unchanged. Ids are generated here so the events and
+ * notifications for a batch can be built before the insert returns, and the
+ * unique index on (seriesId, occurrenceDate) still decides who wins. A row
+ * another invocation created first comes back as a duplicate-key write error,
+ * and its events and notifications are dropped with it rather than written
+ * against an occurrence this request does not own.
+ * ---------------------------------------------------------------------------
  */
 export async function materialiseRange(
   rangeStart: DateKey,
@@ -60,6 +99,8 @@ export async function materialiseRange(
     $or: [{ endDate: null }, { endDate: { $gte: rangeStart } }],
   }).lean();
 
+  if (active.length === 0) return { created: 0, raced: 0 };
+
   /**
    * The curriculum, if there is one, read once for the whole pass.
    *
@@ -70,32 +111,52 @@ export async function materialiseRange(
    */
   const plan = active.some((series) => series.blockId) ? await loadPlanContext(ownerId) : null;
 
-  let created = 0;
-  let raced = 0;
-
-  for (const series of active) {
-    const rule = series.rule as unknown as RecurrenceRule;
-    const dates = occurrenceDatesInRange(
-      rule,
+  // Candidate dates per series, computed without touching the database.
+  const wanted = active.map((series) => ({
+    series,
+    seriesId: String(series._id),
+    dates: occurrenceDatesInRange(
+      series.rule as unknown as RecurrenceRule,
       series.startDate,
       series.endDate ?? null,
       rangeStart,
       horizon,
-    );
+    ),
+  }));
 
-    if (dates.length === 0) continue;
+  const seriesIds = wanted.filter((entry) => entry.dates.length > 0).map((entry) => entry.seriesId);
+  if (seriesIds.length === 0) return { created: 0, raced: 0 };
 
-    const seriesId = String(series._id);
+  /**
+   * One read for every series at once, not one per series.
+   *
+   * The date bound is the whole window rather than each series' own list, so
+   * the query is the same shape however many series exist.
+   */
+  const existing = await CommitmentModel.find(
+    {
+      ownerId,
+      seriesId: { $in: seriesIds },
+      occurrenceDate: { $gte: rangeStart, $lte: horizon },
+    },
+    { seriesId: 1, occurrenceDate: 1 },
+  ).lean();
 
-    // One query for what already exists, rather than one per candidate date.
-    const existing = await CommitmentModel.find(
-      { ownerId, seriesId, occurrenceDate: { $in: dates } },
-      { occurrenceDate: 1 },
-    ).lean();
-    const have = new Set(existing.map((row) => row.occurrenceDate));
+  const have = new Set(existing.map((row) => `${row.seriesId}\u0000${row.occurrenceDate}`));
+
+  interface Pending {
+    doc: Record<string, unknown>;
+    queue: CommitmentForQueue;
+    events: Parameters<typeof appendEvents>[0];
+  }
+
+  const pending: Pending[] = [];
+
+  for (const { series, seriesId, dates } of wanted) {
+    const rule = series.rule as unknown as RecurrenceRule;
 
     for (const occurrenceDate of dates) {
-      if (have.has(occurrenceDate)) continue;
+      if (have.has(`${seriesId}\u0000${occurrenceDate}`)) continue;
 
       // The rule's wall clock, resolved to a UTC instant on that local date.
       const dueAt = zonedTimeToUtc(occurrenceDate, rule.timeOfDay, timeZone);
@@ -106,96 +167,130 @@ export async function materialiseRange(
        * Resolved per occurrence because the answer depends on the DATE -- the
        * weekly rhythm makes Monday machine coding and Thursday testing -- and
        * a fortnight of lookahead materialised with today's answer would name
-       * the same topic fourteen times.
+       * the same topic fourteen times. This is pure and costs no round trip.
        */
       const blockId = series.blockId as BlockId | null;
       const blockPlan = blockId && plan ? planForBlock(plan, blockId, occurrenceDate) : null;
 
-      try {
-        const doc = await CommitmentModel.create({
-          title: blockPlan?.title ?? series.title,
-          outcome: blockPlan?.outcome ?? series.outcome,
+      // Generated here so the events and queue rows for this occurrence can be
+      // built before the insert returns.
+      const id = new mongoose.Types.ObjectId();
+      const entityId = String(id);
+
+      const title = blockPlan?.title ?? series.title;
+      const outcome = blockPlan?.outcome ?? series.outcome;
+      const estimateMinutes = blockPlan?.estimateMinutes ?? rule.estimateMinutes;
+      const priority = blockPlan?.priority ?? series.priority;
+
+      pending.push({
+        doc: {
+          _id: id,
+          title,
+          outcome,
           dueAt,
           // Equal at creation. An occurrence that is later postponed keeps this
           // as the deadline it was originally born with.
           originalDueAt: dueAt,
-          estimateMinutes: blockPlan?.estimateMinutes ?? rule.estimateMinutes,
+          estimateMinutes,
           status: 'pending',
-          priority: blockPlan?.priority ?? series.priority,
+          priority,
           seriesId,
           occurrenceDate,
           blockId,
           curriculumTopicKey: blockPlan?.curriculumTopicKey ?? null,
+          topicOverridden: false,
           createdAt: now,
           startedAt: null,
           completedAt: null,
           notes: '',
           ownerId,
-        });
-
-        await appendEvent({
-          type: 'COMMITMENT_CREATED',
-          entityType: 'commitment',
-          entityId: String(doc._id),
-          ownerId,
-          ts: now,
-          // Not a user action: the rule produced this, not a person.
-          source: 'system',
-          payload: {
-            seriesId,
-            occurrenceDate,
-            dueAt: dueAt.toISOString(),
-            ...(blockPlan
-              ? {
-                  blockId,
-                  curriculumTopicKey: blockPlan.curriculumTopicKey,
-                  // Why this topic, kept in the log so a suggestion the user
-                  // disagrees with can be argued with rather than guessed at.
-                  suggestionReasons: blockPlan.reasons,
-                }
-              : {}),
-          },
-        });
-
-        await appendEvent({
-          type: 'DEADLINE_SET',
-          entityType: 'commitment',
-          entityId: String(doc._id),
-          ownerId,
-          ts: now,
-          source: 'system',
-          payload: { dueAt: dueAt.toISOString(), seriesId },
-        });
-
-        // An occurrence is a commitment like any other, so it gets the same
-        // notifications. Enqueued here, as it is materialised, because there
-        // is no later pass that would pick it up.
-        await enqueueForCommitment(
+        },
+        queue: {
+          id: entityId,
+          title,
+          outcome,
+          dueAt,
+          estimateMinutes,
+          priority,
+          leadMinutes: null,
+        },
+        events: [
           {
-            id: String(doc._id),
-            title: blockPlan?.title ?? series.title,
-            outcome: blockPlan?.outcome ?? series.outcome,
-            dueAt,
-            estimateMinutes: blockPlan?.estimateMinutes ?? rule.estimateMinutes,
-            priority: blockPlan?.priority ?? series.priority,
-            leadMinutes: null,
+            type: 'COMMITMENT_CREATED',
+            entityType: 'commitment',
+            entityId,
+            ownerId,
+            ts: now,
+            // Not a user action: the rule produced this, not a person.
+            source: 'system',
+            payload: {
+              seriesId,
+              occurrenceDate,
+              dueAt: dueAt.toISOString(),
+              ...(blockPlan
+                ? {
+                    blockId,
+                    curriculumTopicKey: blockPlan.curriculumTopicKey,
+                    // Why this topic, kept in the log so a suggestion the user
+                    // disagrees with can be argued with rather than guessed at.
+                    suggestionReasons: blockPlan.reasons,
+                  }
+                : {}),
+            },
           },
-          settings,
-          timeZone,
-          ownerId,
-          now,
-        );
-
-        created += 1;
-      } catch (error) {
-        if (isDuplicateKeyError(error)) {
-          raced += 1;
-          continue;
-        }
-        throw error;
-      }
+          {
+            type: 'DEADLINE_SET',
+            entityType: 'commitment',
+            entityId,
+            ownerId,
+            ts: now,
+            source: 'system',
+            payload: { dueAt: dueAt.toISOString(), seriesId },
+          },
+        ],
+      });
     }
   }
 
-  return { created, raced };
+  if (pending.length === 0) return { created: 0, raced: 0 };
+
+  let raced = 0;
+  let landed = pending;
+
+  try {
+    await CommitmentModel.insertMany(
+      pending.map((entry) => entry.doc),
+      { ordered: false },
+    );
+  } catch (error) {
+    const rejected = duplicateIndexes(error);
+    if (rejected === null) throw error;
+
+    /**
+     * Another invocation won the index for these. Their events and queue rows
+     * are dropped rather than written -- an event against an occurrence this
+     * request did not create would attribute someone else's row to it, and a
+     * notification would be a duplicate of one already queued.
+     */
+    const lost = new Set(rejected);
+    raced = lost.size;
+    landed = pending.filter((_, index) => !lost.has(index));
+  }
+
+  if (landed.length === 0) return { created: 0, raced };
+
+  await appendEvents(landed.flatMap((entry) => entry.events));
+
+  // An occurrence is a commitment like any other, so it gets the same
+  // notifications. Enqueued here, as it is materialised, because there is no
+  // later pass that would pick it up.
+  await enqueueForCommitments(
+    landed.map((entry) => entry.queue),
+    settings,
+    timeZone,
+    ownerId,
+    now,
+  );
+
+  return { created: landed.length, raced };
 }

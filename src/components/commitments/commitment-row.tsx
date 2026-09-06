@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -180,6 +182,18 @@ export function CommitmentRow({
 
       {!closed && !commitment.needsReckoning ? (
         <div className="mt-md flex flex-wrap gap-sm">
+          {/*
+            Sits before Complete deliberately. Completing straight from the
+            list is a checkbox; a session is the thing that produces a real
+            duration to compare against the estimate.
+          */}
+          <Link
+            href={`/focus/${commitment.id}`}
+            className="border-edge min-h-11 flex-1 rounded border px-md text-center text-sm leading-[2.75rem] transition-colors hover:border-signal sm:flex-none"
+          >
+            Start a session
+          </Link>
+
           <button
             type="button"
             disabled={busy !== null}

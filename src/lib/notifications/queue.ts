@@ -185,6 +185,123 @@ export async function enqueueForCommitment(
 }
 
 /**
+ * Queues many commitments' notifications in one round trip.
+ *
+ * Same queue, same keys, same quiet hours, same unique index -- see
+ * `enqueueForCommitment`, which this is a batched form of, not a second
+ * mechanism. Never add a parallel queue for a new caller.
+ *
+ * It exists for materialisation. Three notification types times two channels is
+ * six rows per occurrence, and a fortnight of three daily study blocks is
+ * around 270 of them. One at a time against Atlas M0 that is most of half a
+ * minute, which is past a Hobby function's whole budget.
+ *
+ * `ordered: false` so one collision does not abandon the rest. The rows that
+ * do collide fall back to the single-row path, which is where the revive rule
+ * lives -- a cancelled row occupying a key has to be brought back rather than
+ * counted as "already queued", or the commitment ends up with no pending
+ * notifications at all.
+ */
+export async function enqueueForCommitments(
+  commitments: readonly CommitmentForQueue[],
+  settings: ResolvedSettings,
+  timeZone: string,
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<EnqueueResult> {
+  if (commitments.length === 0) return { created: 0, revived: 0, duplicates: 0 };
+
+  const quiet = { start: settings.quietHoursStart, end: settings.quietHoursEnd };
+  const rows: { commitment: CommitmentForQueue; doc: Record<string, unknown> }[] = [];
+
+  for (const commitment of commitments) {
+    for (const planned of planForCommitment(commitment, settings)) {
+      const scheduledFor = deferPastQuietHours(planned.scheduledFor, quiet, timeZone);
+
+      for (const channel of ACTIVE_CHANNELS) {
+        rows.push({
+          commitment,
+          doc: {
+            commitmentId: commitment.id,
+            type: planned.type,
+            scheduledFor,
+            channel,
+            ownerId,
+            status: 'pending',
+            sentAt: null,
+            readAt: null,
+            payload: {
+              ...planned.payload,
+              deferredFromQuietHours:
+                scheduledFor.getTime() !== planned.scheduledFor.getTime()
+                  ? planned.scheduledFor.toISOString()
+                  : undefined,
+            },
+            createdAt: now,
+          },
+        });
+      }
+    }
+  }
+
+  try {
+    await NotificationModel.insertMany(
+      rows.map((row) => row.doc),
+      { ordered: false },
+    );
+
+    return { created: rows.length, revived: 0, duplicates: 0 };
+  } catch (error) {
+    const rejectedIndexes = duplicateIndexes(error);
+    if (rejectedIndexes === null) throw error;
+
+    // Only the commitments that actually collided go down the slow path, and
+    // only once each -- the single-row enqueue redoes all six of its rows.
+    const collided = new Map<string, CommitmentForQueue>();
+    for (const index of rejectedIndexes) {
+      const row = rows[index];
+      if (row) collided.set(row.commitment.id, row.commitment);
+    }
+
+    let created = rows.length - rejectedIndexes.length;
+    let revived = 0;
+    let duplicates = 0;
+
+    for (const commitment of collided.values()) {
+      const result = await enqueueForCommitment(commitment, settings, timeZone, ownerId, now);
+      created += result.created;
+      revived += result.revived;
+      duplicates += result.duplicates;
+    }
+
+    return { created, revived, duplicates };
+  }
+}
+
+/**
+ * Indexes of the rows an `insertMany` rejected, or null if any rejection was
+ * something other than a duplicate key.
+ *
+ * Null means throw. A write that failed for a reason nobody looked at is how a
+ * notification silently stops existing.
+ */
+function duplicateIndexes(error: unknown): number[] | null {
+  const errors = (error as { writeErrors?: unknown }).writeErrors;
+  if (!Array.isArray(errors) || errors.length === 0) return null;
+
+  const indexes: number[] = [];
+  for (const entry of errors) {
+    const row = entry as { index?: number; code?: number; err?: { index?: number; code?: number } };
+    const code = row.code ?? row.err?.code ?? 0;
+    if (code !== DUPLICATE_KEY) return null;
+
+    indexes.push(row.index ?? row.err?.index ?? -1);
+  }
+
+  return indexes;
+}
+
+/**
  * Cancels every still-pending notification for a commitment.
  *
  * Only `pending` rows: something already sent is a record of what the user was

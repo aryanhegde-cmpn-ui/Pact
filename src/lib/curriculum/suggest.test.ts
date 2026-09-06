@@ -296,3 +296,54 @@ describe('commitmentTitle', () => {
     expect(commitmentTitle('DSA', null)).toBe('DSA');
   });
 });
+
+describe('a topic that ran out of time yesterday', () => {
+  /**
+   * `more-time` is the clearest possible statement that the work continues.
+   * A block that picks up new material the next morning instead is how a plan
+   * produces a trail of half-done topics -- and it would make "I need more
+   * time" cost the user something, which is exactly what stops them saying it.
+   */
+  it('is preferred over the day’s slant and the phase focus', () => {
+    const { choice } = suggestTopic({
+      topics: BLOCK_2,
+      progress: progress({ 'k/supporting/docker': 'in-progress' }),
+      // Monday says machine coding; the phase says JS and Machine Coding.
+      slant: slantFor(MONDAY, 'block-2'),
+      phase: PHASE_1,
+      date: MONDAY,
+      carriedOver: 'k/supporting/docker',
+    });
+
+    // A P2 Supporting topic, off-slant and outside the phase focus, still wins.
+    expect(choice?.topic.stableKey).toBe('k/supporting/docker');
+    expect(choice?.reasons[0]).toMatch(/ran out of time/);
+  });
+
+  it('changes nothing when there is no carry-over', () => {
+    const { choice } = suggestTopic({
+      topics: BLOCK_2,
+      progress: progress({}),
+      slant: slantFor(MONDAY, 'block-2'),
+      phase: PHASE_1,
+      date: MONDAY,
+      carriedOver: null,
+    });
+
+    expect(choice?.topic.stableKey).toBe('k/mc/modal');
+  });
+
+  it('is not preferred once the topic is done', () => {
+    // Finished after the session that ran out of time. Nothing to carry.
+    const { choice } = suggestTopic({
+      topics: BLOCK_2,
+      progress: progress({ 'k/supporting/docker': 'done' }),
+      slant: slantFor(MONDAY, 'block-2'),
+      phase: PHASE_1,
+      date: MONDAY,
+      carriedOver: 'k/supporting/docker',
+    });
+
+    expect(choice?.topic.stableKey).toBe('k/mc/modal');
+  });
+});

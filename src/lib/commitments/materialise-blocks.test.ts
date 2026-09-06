@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlanContext } from '@/lib/curriculum/plan';
+import { fakeCollection } from '@/test/fake-collection';
 
 /**
  * A study block is an ordinary Series.
@@ -23,24 +24,21 @@ vi.mock('@/lib/db/models/series', () => ({
   SeriesModel: { find: () => ({ lean: async () => store.series }) },
 }));
 vi.mock('@/lib/db/models/commitment', () => ({
-  CommitmentModel: {
-    find: () => ({ lean: async () => [] }),
-    create: async (doc: Record<string, unknown>) => {
-      const saved = { ...doc, _id: `c${store.commitments.length + 1}` };
-      store.commitments.push(saved);
-      return saved;
-    },
-  },
+  CommitmentModel: fakeCollection(store.commitments, {
+    uniqueBy: ['seriesId', 'occurrenceDate'],
+  }),
 }));
 vi.mock('@/lib/db/events', () => ({
-  appendEvent: async (event: Record<string, unknown>) => {
-    store.events.push(event);
+  appendEvents: async (events: Record<string, unknown>[]) => {
+    store.events.push(...events);
+    return { appended: events.length, duplicates: 0 };
   },
 }));
 vi.mock('@/lib/notifications/settings', () => ({ getSettings: async () => ({}) }));
 vi.mock('@/lib/notifications/queue', () => ({
-  enqueueForCommitment: async (commitment: Record<string, unknown>) => {
-    store.enqueued.push(commitment);
+  enqueueForCommitments: async (commitments: Record<string, unknown>[]) => {
+    store.enqueued.push(...commitments);
+    return { created: commitments.length, revived: 0, duplicates: 0 };
   },
 }));
 vi.mock('@/lib/curriculum/plan', async (importOriginal) => {
@@ -106,6 +104,7 @@ const CONTEXT: PlanContext = {
     },
   ],
   progress: new Map(),
+  carriedOver: new Map(),
 };
 
 function blockSeries() {
@@ -131,7 +130,8 @@ function blockSeries() {
 
 beforeEach(() => {
   store.series = [];
-  store.commitments = [];
+  // Emptied in place: the fake holds a reference to this array.
+  store.commitments.length = 0;
   store.events = [];
   store.enqueued = [];
   store.planLoads = 0;

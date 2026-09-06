@@ -20,6 +20,8 @@ export const PROTECTED_PREFIXES = [
   '/settings',
   '/postponements',
   '/overseer',
+  // Full-screen, outside the nav shell, and every bit as private as the rest.
+  '/focus',
 ] as const;
 
 export function isProtectedPath(pathname: string): boolean {

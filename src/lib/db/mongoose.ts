@@ -2,6 +2,7 @@ import 'server-only';
 
 import mongoose, { type Mongoose } from 'mongoose';
 
+import { registerUpdateValidation } from '@/lib/db/validate-updates';
 import { getEnv } from '@/lib/env';
 
 interface MongooseCache {
@@ -33,6 +34,13 @@ const cache: MongooseCache = (globalForMongoose.__pactMongooseCache ??= {
  * open competing connections.
  */
 export async function connectToDatabase(): Promise<Mongoose> {
+  /**
+   * Before anything can query. Mongoose does not validate updates on its own,
+   * and a `role` outside its own enum has already reached this database
+   * through an unvalidated `updateOne` -- see `validate-updates.ts`.
+   */
+  registerUpdateValidation();
+
   if (cache.conn) {
     return cache.conn;
   }

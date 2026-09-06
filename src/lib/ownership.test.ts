@@ -36,6 +36,8 @@ const SCOPED_MODELS = [
   'TopicProgressModel',
   'ResourceModel',
   'InterviewPrepItemModel',
+  'RecoverySessionModel',
+  'FocusSessionModel',
 ];
 
 /** Query methods that read or write rows and therefore need a scope. */
@@ -76,6 +78,8 @@ const EXEMPT = new Set([
   'lib/db/models/topic-progress.ts',
   'lib/db/models/resource.ts',
   'lib/db/models/interview-prep-item.ts',
+  'lib/db/models/recovery-session.ts',
+  'lib/db/models/focus-session.ts',
   // The scanner itself.
   'lib/ownership.test.ts',
 ]);

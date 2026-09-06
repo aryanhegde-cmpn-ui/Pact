@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 
 import { auth } from '@/lib/auth';
 import { can, type Capability, type Role } from '@/lib/auth/permissions';
+import { SESSION_LOCK_MESSAGE, SESSION_LOCKED_CAPABILITIES } from '@/lib/schemas/focus';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { CommitmentError } from '@/lib/commitments/service';
 import { DeadlineError } from '@/lib/commitments/deadline';
@@ -71,9 +72,23 @@ export async function currentActor(): Promise<Actor | null> {
  * -- a JWT issued before revocation would otherwise keep working until it
  * expired, which for a 90-day session is not a revocation at all.
  */
+export interface GuardOptions {
+  /**
+   * Lets this route write while a focus session is running.
+   *
+   * Only the focus routes themselves have any business doing so -- ending a
+   * session completes its commitment, which is a `commitment:write`. Every
+   * other write is refused, and the scanner in
+   * `src/lib/route-permissions.test.ts` fails on a route outside `api/focus`
+   * that sets this.
+   */
+  duringSession?: boolean;
+}
+
 export function requireCapability(
   capability: Capability,
   handler: (actor: Actor, request: Request, context: RouteContext) => Promise<Response>,
+  options: GuardOptions = {},
 ): (request: Request, context: RouteContext) => Promise<Response> {
   return async (request, context) => {
     const actor = await currentActor();
@@ -90,6 +105,24 @@ export function requireCapability(
       if (!live) return jsonError('Not permitted.', 403);
     }
 
+    /**
+     * THE SESSION LOCK, ENFORCED HERE RATHER THAN IN THE UI.
+     *
+     * The point of a full-screen session is that it is the only thing
+     * happening. A lock the UI holds is not a lock: a second tab routes
+     * straight around it, and so does a phone that restored a page from before
+     * the session started.
+     *
+     * In the guard specifically, for the same reason the capability check is:
+     * the realistic failure is a route added next month that nobody remembers
+     * to lock, and only something every route already passes through can
+     * catch that.
+     */
+    if (!options.duringSession && isSessionLocked(capability)) {
+      const running = await hasRunningSession(actor.ownerId);
+      if (running) return jsonError(SESSION_LOCK_MESSAGE, 409);
+    }
+
     try {
       return await handler(actor, request, context ?? { params: Promise.resolve({}) });
     } catch (error) {
@@ -100,6 +133,25 @@ export function requireCapability(
 
 export interface RouteContext {
   params: Promise<Record<string, string>>;
+}
+
+function isSessionLocked(capability: Capability): boolean {
+  return (SESSION_LOCKED_CAPABILITIES as readonly string[]).includes(capability);
+}
+
+/**
+ * Whether a session is running, read per request.
+ *
+ * A read, not a cached flag: the session started in another tab a second ago
+ * is exactly the one this needs to see.
+ */
+async function hasRunningSession(ownerId: string): Promise<boolean> {
+  const { FocusSessionModel } = await import('@/lib/db/models/focus-session');
+  await connectToDatabase();
+
+  const running = await FocusSessionModel.findOne({ ownerId, endedAt: null }, { _id: 1 }).lean();
+
+  return running !== null;
 }
 
 /**

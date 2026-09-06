@@ -65,6 +65,7 @@ vi.mock('@/lib/db/models/resource', () => ({ ResourceModel: collection('resource
 vi.mock('@/lib/db/models/interview-prep-item', () => ({
   InterviewPrepItemModel: collection('interview', () => []),
 }));
+vi.mock('@/lib/focus/carry-over', () => ({ carriedOverTopics: async () => new Map() }));
 vi.mock('@/lib/db/events', () => ({
   appendEvent: async (event: Record<string, unknown>) => {
     store.events.push(event);

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 import type { StudyToday } from '@/lib/curriculum/service';
@@ -89,6 +90,17 @@ export function TodayBlocks({ initial }: { initial: StudyToday }): React.JSX.Ele
 
             {block.reasons.length > 0 ? (
               <p className="text-text/40 mt-xs text-xs">Suggested because {block.reasons[0]}.</p>
+            ) : null}
+
+            {block.commitment &&
+            block.commitment.status !== 'done' &&
+            block.commitment.status !== 'abandoned' ? (
+              <Link
+                href={`/focus/${block.commitment.id}`}
+                className="border-signal text-signal mt-sm inline-flex min-h-11 items-center rounded border px-md text-sm"
+              >
+                Start the session
+              </Link>
             ) : null}
 
             {block.commitment ? (
