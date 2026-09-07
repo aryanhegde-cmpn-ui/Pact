@@ -121,7 +121,7 @@ function Group({
 
             <Link
               href={`/dashboard?timeline=${row.id}`}
-              className="text-text/50 hover:text-text mt-sm inline-block text-xs underline"
+              className="text-text/50 hover:text-text mt-sm inline-flex min-h-11 items-center text-xs underline"
             >
               See the history
             </Link>

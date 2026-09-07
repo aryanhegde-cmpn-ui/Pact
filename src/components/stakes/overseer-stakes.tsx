@@ -110,19 +110,20 @@ export function OverseerStakes({ initial }: { initial: StakesState }): React.JSX
             });
             if (ok) event.currentTarget.reset();
           }}
-          className="flex flex-col gap-sm"
+          aria-label="Add a consequence"
+          className="grid gap-sm sm:grid-cols-2"
         >
           <input
             name="name"
             required
             placeholder="What is withheld"
-            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm sm:col-span-2"
           />
           <input
             name="description"
             required
             placeholder="Describe it, in a sentence they will read"
-            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm sm:col-span-2"
           />
 
           <label className="flex items-center gap-sm text-sm">
@@ -155,7 +156,7 @@ export function OverseerStakes({ initial }: { initial: StakesState }): React.JSX
             The cap is in the schema, not this input. A cap that only exists in
             the form is a cap the API does not have.
           */}
-          <p className="text-text/40 text-xs">
+          <p className="text-text/40 text-xs sm:col-span-2">
             Discharged by: {DISCHARGE_LABELS['adherence-recovered']}. It also expires at its window,
             whether or not it is discharged.
           </p>
@@ -163,7 +164,7 @@ export function OverseerStakes({ initial }: { initial: StakesState }): React.JSX
           <button
             type="submit"
             disabled={busy}
-            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
+            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors sm:col-span-2 sm:justify-self-start"
           >
             Add consequence
           </button>
@@ -216,19 +217,20 @@ export function OverseerStakes({ initial }: { initial: StakesState }): React.JSX
             });
             if (ok) event.currentTarget.reset();
           }}
-          className="flex flex-col gap-sm"
+          aria-label="Add a reward"
+          className="grid gap-sm sm:grid-cols-2"
         >
           <input
             name="name"
             required
             placeholder="What they get"
-            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm sm:col-span-2"
           />
           <input
             name="description"
             required
             placeholder="Describe it"
-            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm sm:col-span-2"
           />
 
           <label className="flex flex-col gap-2xs">
@@ -262,7 +264,7 @@ export function OverseerStakes({ initial }: { initial: StakesState }): React.JSX
           <button
             type="submit"
             disabled={busy}
-            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
+            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors sm:col-span-2 sm:justify-self-start"
           >
             Add reward
           </button>

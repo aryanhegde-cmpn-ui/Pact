@@ -51,12 +51,27 @@ export function ServiceWorkerRegistrar(): React.JSX.Element | null {
       }
     };
 
+    /**
+     * Reload only when an EXISTING worker was replaced.
+     *
+     * `controllerchange` also fires the first time a worker claims a page that
+     * had none -- `sw.js` calls `clients.claim()` on activate -- so reloading
+     * unconditionally meant every first-ever visit reloaded itself once: a
+     * visible flash and a wasted round trip for every new visitor and every
+     * new device, on the landing page included.
+     *
+     * `controller` is null on a first visit and a worker on an update, so it
+     * is the thing that tells the two apart. Captured before registering,
+     * because registering is what changes it.
+     */
+    const hadController = navigator.serviceWorker.controller !== null;
+
     void register();
 
-    // The new worker took control, so the page is now running old code against
-    // a new worker. Reload once, guarded against a loop.
     let refreshing = false;
     const onControllerChange = (): void => {
+      // First claim, not an update. The page is already running current code.
+      if (!hadController) return;
       if (refreshing) return;
       refreshing = true;
       window.location.reload();

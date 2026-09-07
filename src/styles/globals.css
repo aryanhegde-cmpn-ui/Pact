@@ -68,6 +68,30 @@
     outline: 2px solid var(--pact-signal);
     outline-offset: 2px;
   }
+
+  /*
+   * REDUCED MOTION MEANS CUTS, EVERYWHERE.
+   *
+   * The Motion components honour the preference through `useReducedMotion`,
+   * but CSS transitions do NOT respect it on their own -- a `transition-colors`
+   * hover state keeps animating however the setting is configured. Someone who
+   * asked for reduced motion asked for the whole page, not for the half of it
+   * driven by JavaScript.
+   *
+   * Durations go to effectively zero rather than to nothing at all: `0.01ms`
+   * keeps `transitionend` firing, so anything waiting on that event still
+   * proceeds instead of hanging.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer components {

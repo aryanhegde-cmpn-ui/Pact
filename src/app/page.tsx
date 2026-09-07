@@ -36,12 +36,21 @@ export default async function LandingPage({
   return (
     <main className="flex min-h-dvh items-center justify-center px-md py-2xl">
       {/*
-        `max-w-sm` and nothing else. There was a `min-w-150` here, which in
-        Tailwind v4's numeric spacing scale is 150 x 0.25rem = 600px -- a
-        minimum wider than the maximum beside it, and wider than the phone this
-        is opened on. The form rendered from x = -105px.
+        An explicit width, and nothing else.
+
+        Two separate bugs have come through this one line. `min-w-150` was one:
+        in Tailwind v4's numeric spacing scale that is 150 x 0.25rem = 600px, a
+        minimum wider than the maximum beside it and wider than the phone this
+        is opened on, and the form rendered from x = -105px.
+
+        The second was `max-w-sm`, which read 12px. The theme defines a
+        `--spacing-sm` step, and a named width utility resolves against the
+        spacing scale before the container scale -- so every `max-w-sm`,
+        `max-w-xl` and `max-w-2xl` in the app silently became a few dozen
+        pixels. A test in `src/lib/ui-invariants.test.ts` now fails on the
+        whole family of names.
       */}
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-[24rem]">
         <header>
           <h1 className="text-2xl leading-tight font-semibold tracking-tight">Pact</h1>
           <p className="text-text/40 mt-2xs text-sm">Execution, not organisation</p>

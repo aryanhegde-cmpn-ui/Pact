@@ -19,7 +19,7 @@ export default async function JoinPage({
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-md py-xl">
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-[24rem]">
         <header className="mb-xl">
           <h1 className="text-2xl font-semibold tracking-tight">Accept an invite</h1>
           <p className="text-text/60 mt-2xs text-sm">

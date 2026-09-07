@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { PactError } from '@/lib/api/errors';
+
 import { isMissed, minutesOverdue } from '@/lib/behavior/miss';
 import { needsReckoning, type ReckoningEvent } from '@/lib/behavior/reckoning';
 import { EventModel } from '@/lib/db/models/event';
@@ -21,13 +23,9 @@ import {
 } from '@/lib/schemas/commitment';
 import { addDays, toDateKey, type DateKey } from '@/lib/time';
 
-export class CommitmentError extends Error {
-  override readonly name = 'CommitmentError';
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
+export class CommitmentError extends PactError {
+  constructor(message: string, status = 400) {
+    super(message, status);
   }
 }
 

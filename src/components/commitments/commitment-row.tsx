@@ -1,8 +1,11 @@
 'use client';
 
+import { m } from 'motion/react';
+
+import { useTransition } from '@/components/motion/transitions';
+
 import Link from 'next/link';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { CommitmentTimeline } from '@/components/reckoning/commitment-timeline';
@@ -26,7 +29,7 @@ export function CommitmentRow({
   timeZone: string;
   onChanged: () => void;
 }): React.JSX.Element {
-  const router = useRouter();
+  const transition = useTransition('state');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reckoning, setReckoning] = useState(false);
@@ -47,8 +50,16 @@ export function CommitmentRow({
         setError(detail.error ?? 'That did not work.');
         return;
       }
+      /**
+       * `onChanged()` alone. There used to be a `router.refresh()` here too,
+       * which re-rendered the server tree and REMOUNTED this row -- destroying
+       * the exit animation before it could run, and costing a full server
+       * round trip on top of the refetch `onChanged` already does.
+       *
+       * The parent re-reads `/api/today` and drops this row from its list,
+       * which is what makes it leave, and leaving is the feedback.
+       */
       onChanged();
-      router.refresh();
     } catch {
       setError('Could not reach the server.');
     } finally {
@@ -59,9 +70,24 @@ export function CommitmentRow({
   const closed = commitment.status === 'done' || commitment.status === 'abandoned';
 
   return (
-    <li
+    <m.li
+      /**
+       * The row leaving IS the feedback for completing it.
+       *
+       * Collapsing its height rather than animating layout on its siblings:
+       * `domAnimation` has no layout projection (that is `domMax`, and most of
+       * the library), and for a vertical list the collapse produces the same
+       * result -- the rows below move up smoothly instead of teleporting.
+       *
+       * Animated on the `li` itself rather than a wrapper, because a `div`
+       * between a `ul` and its `li` is invalid markup and the exit silently
+       * did not run.
+       */
+      initial={false}
+      exit={{ opacity: 0, height: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 }}
+      transition={transition}
       className={[
-        'border-edge bg-surface rounded-md border p-md',
+        'border-edge bg-surface overflow-hidden rounded-md border p-md',
         commitment.needsReckoning ? 'border-signal' : commitment.missed ? 'border-signal/50' : '',
         closed ? 'opacity-60' : '',
       ].join(' ')}
@@ -169,7 +195,7 @@ export function CommitmentRow({
       <button
         type="button"
         onClick={() => setShowTimeline((open) => !open)}
-        className="text-text/40 hover:text-text mt-sm text-xs underline"
+        className="text-text/40 hover:text-text mt-sm inline-flex min-h-11 items-center text-xs underline"
       >
         {showTimeline ? 'Hide history' : 'History'}
       </button>
@@ -218,6 +244,6 @@ export function CommitmentRow({
           </button>
         </div>
       ) : null}
-    </li>
+    </m.li>
   );
 }

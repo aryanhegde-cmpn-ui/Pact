@@ -120,9 +120,34 @@ const MATRIX: Record<Role, readonly Capability[]> = {
   overseer: ['progress:read', 'consequence:read', 'consequence:write'],
 };
 
-/** Whether a role holds a capability outright. */
+/**
+ * Whether a role holds a capability outright.
+ *
+ * ---------------------------------------------------------------------------
+ * AN UNRECOGNISED ROLE HOLDS NOTHING. IT DOES NOT THROW.
+ * ---------------------------------------------------------------------------
+ * This used to be `MATRIX[role].includes(...)`, which throws a TypeError when
+ * `role` is not a key -- and it is called from the guard OUTSIDE the handler's
+ * try/catch, so the throw escaped as a bare 500 where 403 is the correct
+ * answer.
+ *
+ * That was reachable in production. Sessions are 90-day JWTs carrying the role
+ * copied at sign-in, and `seedUser` once wrote `role: 'owner'`, which is in no
+ * enum. Any session minted before that fix produced a 500 on every guarded
+ * route while pages kept rendering, because pages use `currentActor()` and
+ * never call this.
+ *
+ * Failing closed is the only safe reading: an unknown role is not a role, and
+ * a role that is not in the matrix has no entry saying what it may do.
+ * ---------------------------------------------------------------------------
+ */
 export function can(role: Role, capability: Capability): boolean {
-  return MATRIX[role].includes(capability);
+  return MATRIX[role]?.includes(capability) ?? false;
+}
+
+/** Whether a value is a role the matrix knows about. */
+export function isRole(value: unknown): value is Role {
+  return typeof value === 'string' && value in MATRIX;
 }
 
 /**

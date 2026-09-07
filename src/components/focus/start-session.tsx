@@ -76,7 +76,7 @@ export function StartSession({
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-lg p-lg">
+    <main className="mx-auto flex min-h-dvh w-full max-w-[36rem] flex-col justify-center gap-lg p-lg sm:p-2xl">
       <header>
         <h1 className="text-xl font-semibold tracking-tight">{commitment.title}</h1>
         <p className="text-text/60 mt-xs text-sm">{commitment.outcome}</p>

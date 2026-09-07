@@ -10,7 +10,7 @@ export const metadata = { title: 'Offline' };
 export default function OfflinePage(): React.JSX.Element {
   return (
     <main className="flex min-h-dvh items-center justify-center px-md py-xl">
-      <div className="max-w-sm text-center">
+      <div className="max-w-[24rem] text-center">
         <h1 className="text-xl font-semibold tracking-tight">Offline</h1>
         <p className="text-text/60 mt-sm text-sm">
           Pact cannot reach the server. Anything you have already opened is still available; this

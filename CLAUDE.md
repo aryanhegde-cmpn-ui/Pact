@@ -787,6 +787,54 @@ than a dead button. On iOS the Notification API exists only inside the
 installed PWA; that case is detected rather than shown a button that fails
 silently.
 
+## Motion
+
+Framer Motion, published as `motion` with React bindings under `motion/react`.
+
+> **Motion exists to explain what changed and where it came from. It never
+> rewards.**
+>
+> If an animation would feel good to trigger repeatedly, remove it.
+
+That is the anti-feature list applied to movement. A flourish on completing a
+commitment is celebratory animation arriving as a nice touch rather than as a
+feature anybody would have argued for.
+
+**Earns motion:** a row leaving a list when it is completed; the miss block
+arriving above everything; a ring segment changing state; recovery or focus
+mode replacing a screen. All of them answer "what just moved, and where did it
+come from" — a question the user actually has.
+
+**Does not:** staggered entrance on load, hover flourishes, scroll reveals,
+parallax, and springs on anything factual. Overshoot is expressive, and a
+commitment leaving because it was completed and one leaving because it was
+abandoned are the same movement.
+
+- **Two durations, both eased, both in
+  [`src/components/motion/transitions.ts`](src/components/motion/transitions.ts).**
+  200ms for a state change, 320ms for a mode change. A duration written inline
+  anywhere else fails a test.
+- **Reduced motion means cuts, not slower animation.** `useTransition()`
+  returns `duration: 0` under `useReducedMotion`. Halving a duration misreads
+  the setting — someone who asked for it is often asking because motion makes
+  them ill. `globals.css` carries the same rule for CSS transitions, which
+  ignore the preference otherwise.
+- **`LazyMotion` with `domAnimation` and the `m` components**, never the full
+  `motion` object — `strict` on the provider makes that a runtime error. The
+  cost of the library was measured, not assumed: **+46.3 KB gzipped**.
+  `domAnimation` has **no layout projection**, so a list animates its own
+  height collapsing rather than its siblings' positions. `layout` props
+  silently do nothing.
+- **The client boundary stays at the component.** A page marked `use client`
+  to get an animation loses server rendering for its whole tree.
+- **App Router has no exit animation for route changes.** Navigation is a cut.
+  Do not fight it; animate within routes.
+
+`src/lib/motion-invariants.test.ts` scans the source for all of the above.
+`e2e/motion.spec.ts` asserts the runtime half — and watches inline styles as
+well as `document.getAnimations()`, because Motion drives `height` on the main
+thread where the browser's own animation list cannot see it.
+
 ## Deployment constraints
 
 Deployed on **Vercel Hobby**. This is a hard constraint on architecture:
@@ -888,6 +936,31 @@ will exhaust the pool and take the app down.
   took 34 seconds for a fortnight against M0 — past a Hobby function's whole
   budget. A test asserts the write count does not scale with the number of
   occurrences, because this regresses invisibly.
+- **No route handler returns a bare 500 from an escaped exception.** Every
+  guarded route runs inside `translateError` in
+  [`src/lib/api/guard.ts`](src/lib/api/guard.ts): Zod to 422, any `PactError`
+  to the status it names, Mongoose `ValidationError` to 400, duplicate key to
+  409, and anything else to a 500 carrying a logged correlation id.
+
+  **Every domain error extends `PactError`** in
+  [`src/lib/api/errors.ts`](src/lib/api/errors.ts), and a test fails on one
+  that does not. Matching on `error.constructor.name` instead was tried: it
+  passed every unit test and still returned 500 in the production build,
+  because the minifier mangles class names. `instanceof` is the version that
+  survives a build.
+
+  Creating an invite returned a bare 500 for two reasons at once — `can()`
+  threw for a role outside the enum, from outside the try/catch, and five error
+  classes never reached the translator. `can()` now fails closed.
+
+- **Fixtures, not skipped specs.** Three seeded accounts:
+  `npm run seed:user` (the primary), `seed:overseer` (a second account through
+  the real invite and redemption path) and `seed:recovery` (an account already
+  past the recovery thresholds, because recovery mode replaces the dashboard
+  and cannot share the primary's). Each has a Playwright setup project and its
+  own storage state. "No spec can reach this surface" is nearly always a
+  statement about the fixtures — and the landing-page bug, the overseer's
+  pages and recovery mode all shipped through that gap.
 - **Index changes need `npm run db:indexes`.** Mongoose creates missing indexes
   but never drops a redefined one, so the old key stays in place still
   enforcing its old constraint.
@@ -943,7 +1016,31 @@ nothing on purpose. Every colour comes from the five tokens. If a component
 seems to need a sixth colour, it probably wants opacity (`text-text/60`) or it
 wants a different design.
 
-Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`). **Mobile first** —
+Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
+
+**Never size anything with a name the spacing scale also defines.** `max-w-sm`
+means `max-width: 12px` here, `max-w-xl` means 32px, and `max-w-2xl` matches
+nothing and applies no cap: the theme defines `--spacing-sm` and friends, and a
+named width utility resolves against the spacing scale before the container
+scale. Nothing warns — the build is clean and a 32px column overflows nothing,
+so the focus screen rendered 32px wide on a desktop for a release. Widths take
+an explicit value (`max-w-[36rem]`); a test fails on the whole family of names.
+This is the colour/type token collision again in a second namespace.
+
+**Desktop is not a stretched phone.** Above 1024 a single column of short
+sections becomes two, and long lists run in two columns rather than one ribbon
+down a page four screens tall. Content is capped at `max-w-5xl` by the shell —
+full-bleed text at 1440 is unreadable.
+
+**A phone is not a narrow desktop either.** Below 640 a row with a fixed gutter
+regroups rather than shrinking: the week view's date and marks take a line of
+their own so the content gets the full width. A curriculum of sixty topics
+collapses to modules that open on demand, with a filter — everything expanded
+is fine at a dozen and an eleven-thousand-pixel dump at sixty.
+
+A horizontally scrolling table is acceptable when it is genuinely tabular and
+marked `[data-scrollable]`; a table collapsed into unlabelled stacked rows is
+not, because the labels are the table. **Mobile first** —
 commitments get created and completed on a phone, and the desktop layout is the
 secondary case. Every surface is checked at 390px by
 [`e2e/today.spec.ts`](e2e/today.spec.ts).
@@ -1073,6 +1170,10 @@ Study / Progress surfaces with the greeting and the block ring.
 Working, additionally: overseer-configured rewards and consequences with
 bounded non-stacking windows, discharge by doing the work, and primary-
 controlled vacation mode.
+
+Working, additionally: motion that explains what changed, a responsive pass
+across 390 / 768 / 1024 / 1440 and landscape phone, and e2e coverage of the
+overseer's pages, recovery mode and the staleness banner.
 
 Not built yet: the video player and the behaviour engine.
 

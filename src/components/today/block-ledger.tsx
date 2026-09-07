@@ -111,7 +111,7 @@ export function BlockLedger({
                   <button
                     type="button"
                     onClick={() => setOpen(block.blockId)}
-                    className="text-text/40 hover:text-text text-xs underline"
+                    className="text-text/40 hover:text-text inline-flex min-h-11 items-center text-xs underline"
                   >
                     Study something else
                   </button>

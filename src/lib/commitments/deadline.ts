@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { PactError } from '@/lib/api/errors';
+
 import { needsReckoning } from '@/lib/behavior/reckoning';
 import { appendEvent, readEntityEvents } from '@/lib/db/events';
 import { getEnv } from '@/lib/env';
@@ -156,15 +158,15 @@ export async function changeDeadline(
   return { previousDueAt, newDueAt };
 }
 
-export class DeadlineError extends Error {
-  override readonly name = 'DeadlineError';
-
+export class DeadlineError extends PactError {
   constructor(
     message: string,
     /** Lets a surface route the user somewhere useful rather than just showing text. */
     readonly code: 'needs-reckoning' | 'needs-next-action' | 'generic' = 'generic',
   ) {
-    super(message);
+    // Always a 400: every one of these is the caller asking for something the
+    // rules refuse, with a message written to explain which rule.
+    super(message, 400);
   }
 }
 

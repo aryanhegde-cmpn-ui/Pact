@@ -1,6 +1,10 @@
 'use client';
 
+import { m } from 'motion/react';
 import { useState } from 'react';
+
+import { MotionProvider } from '@/components/motion/motion-provider';
+import { useTransition } from '@/components/motion/transitions';
 
 import type { RecoveryCandidate, RecoveryState } from '@/lib/commitments/recovery';
 import {
@@ -29,6 +33,15 @@ import {
  * done.
  */
 export function RecoveryMode({ initial }: { initial: RecoveryState }): React.JSX.Element {
+  /**
+   * A MODE change, not a page load.
+   *
+   * The dashboard being replaced should register as deliberate rather than as
+   * a navigation glitch, so it fades in over 320ms -- long enough to notice,
+   * short enough not to be a transition anyone waits through. Nothing moves;
+   * a slide would imply it came from somewhere.
+   */
+  const transition = useTransition('mode');
   const [state, setState] = useState(initial);
   const [busy, setBusy] = useState<RecoverySlot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,50 +94,57 @@ export function RecoveryMode({ initial }: { initial: RecoveryState }): React.JSX
   const resolvedThisPass = Object.keys(done).length;
 
   return (
-    <div className="flex flex-col gap-xl">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">Recovery</h1>
-        {/*
+    <MotionProvider>
+      <m.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={transition}
+        className="flex flex-col gap-xl"
+      >
+        <header>
+          <h1 className="text-xl font-semibold tracking-tight">Recovery</h1>
+          {/*
           The count, once, plainly. Not a metric and not a chart -- the number
           is here so the size of the problem is not in doubt, and then the rest
           of the screen is three things to do about it.
         */}
-        <p className="text-text/60 mt-xs text-sm">
-          {state.counts.overdue} commitments are past due and {state.counts.needsReckoning} of them
-          have not been answered for. The dashboard is off until that is under{' '}
-          {state.thresholds.overdue} and {state.thresholds.needsReckoning}.
-        </p>
-        <p className="text-text/40 mt-2xs text-xs">
-          Three at a time, three different ways. This will take more than one pass
-          {state.session && state.session.passes > 0
-            ? ` — ${state.session.passes} done so far.`
-            : '.'}
-        </p>
-      </header>
+          <p className="text-text/60 mt-xs text-sm">
+            {state.counts.overdue} commitments are past due and {state.counts.needsReckoning} of
+            them have not been answered for. The dashboard is off until that is under{' '}
+            {state.thresholds.overdue} and {state.thresholds.needsReckoning}.
+          </p>
+          <p className="text-text/40 mt-2xs text-xs">
+            Three at a time, three different ways. This will take more than one pass
+            {state.session && state.session.passes > 0
+              ? ` — ${state.session.passes} done so far.`
+              : '.'}
+          </p>
+        </header>
 
-      {error ? <p className="text-signal text-sm">{error}</p> : null}
+        {error ? <p className="text-signal text-sm">{error}</p> : null}
 
-      <div className="flex flex-col gap-lg">
-        {state.slots.map((entry) => (
-          <Slot
-            key={entry.slot}
-            slot={entry.slot}
-            suggested={entry.suggested}
-            why={entry.why}
-            candidates={state.candidates}
-            busy={busy === entry.slot}
-            done={done[entry.slot]}
-            onResolve={(body) => void resolve(entry.slot, body)}
-          />
-        ))}
-      </div>
+        <div className="flex flex-col gap-lg">
+          {state.slots.map((entry) => (
+            <Slot
+              key={entry.slot}
+              slot={entry.slot}
+              suggested={entry.suggested}
+              why={entry.why}
+              candidates={state.candidates}
+              busy={busy === entry.slot}
+              done={done[entry.slot]}
+              onResolve={(body) => void resolve(entry.slot, body)}
+            />
+          ))}
+        </div>
 
-      {resolvedThisPass === 3 ? (
-        <p className="text-text/60 text-sm">
-          Three dispatched. {state.counts.overdue} left — the next three are above.
-        </p>
-      ) : null}
-    </div>
+        {resolvedThisPass === 3 ? (
+          <p className="text-text/60 text-sm">
+            Three dispatched. {state.counts.overdue} left — the next three are above.
+          </p>
+        ) : null}
+      </m.div>
+    </MotionProvider>
   );
 }
 

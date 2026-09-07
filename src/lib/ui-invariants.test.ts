@@ -33,6 +33,41 @@ const COMPONENTS = [join(ROOT, 'components'), join(ROOT, 'app')]
   .flatMap((dir) => files(dir, /\.tsx?$/))
   .map((path) => ({ rel: relative(ROOT, path), code: readFileSync(path, 'utf8') }));
 
+describe('the spacing scale does not shadow the width scale', () => {
+  it('never sizes anything with a name the spacing scale also defines', () => {
+    /**
+     * -----------------------------------------------------------------------
+     * `max-w-sm` MEANT 12 PIXELS.
+     * -----------------------------------------------------------------------
+     * The theme defines named spacing steps -- `--spacing-sm`, `--spacing-xl`
+     * and the rest -- and in Tailwind v4 a named width utility resolves
+     * against the spacing scale before the container scale. So `max-w-sm`
+     * quietly became `max-width: 12px`, `max-w-xl` became 32px, and
+     * `max-w-2xl` matched nothing at all and applied no cap.
+     *
+     * It shipped because everything about it looks correct: it is the same
+     * class every Tailwind project uses, the build raises nothing, and the
+     * responsive suite is happy -- a 32px column does not overflow anything.
+     * The focus screen, which is the one surface that is nothing but a
+     * centred column, rendered at 32px wide on a desktop for an entire
+     * release.
+     *
+     * The rule is the one already applied to colour: if a token namespace
+     * collides, name the value explicitly rather than hoping the resolution
+     * order stays as you found it.
+     * -----------------------------------------------------------------------
+     */
+    const shadowed = ['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl'].join('|');
+    const pattern = new RegExp(`(?:^|["' :])(?:max-w|min-w|w|basis|size)-(?:${shadowed})\\b`);
+
+    const offenders = COMPONENTS.filter((file) => pattern.test(stripComments(file.code))).map(
+      (file) => file.rel,
+    );
+
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe('no reward layer', () => {
   it('renders no XP, level, badge or leaderboard', () => {
     /**
@@ -107,7 +142,11 @@ describe('the accent is reserved for state', () => {
     // one thing this app is allowed to withhold a reward for.
     const ring = readFileSync(join(ROOT, 'components/today/block-ring.tsx'), 'utf8');
 
-    expect(ring).toContain('stroke-text');
+    // The stroke animates between token VALUES rather than swapping a class,
+    // so a colour transition has two values to move between -- but the values
+    // are still the five tokens, never a literal.
+    expect(ring).toContain('var(--pact-text)');
+    expect(ring).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     // Comments stripped: this file's own prose explains why there is no green.
     expect(stripComments(ring)).not.toMatch(/green|emerald|success/i);
   });
