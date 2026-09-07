@@ -159,6 +159,25 @@ test.describe('the visual rules', () => {
 
 test.describe('completing without a refresh', () => {
   test('updates the page from the API rather than reloading it', async ({ page }) => {
+    /**
+     * Provisions its own commitment.
+     *
+     * The test completes what it finds, so relying on whatever happened to be
+     * on Today made it pass once and skip on every run afterwards -- which is
+     * indistinguishable from a test that was deleted. Creating one due later
+     * today costs a request and makes the check repeatable.
+     */
+    const created = await page.context().request.post('/api/commitments', {
+      data: {
+        title: `Fixture ${Date.now()}`,
+        outcome: 'The end-to-end check has something to complete',
+        dueAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+        estimateMinutes: 15,
+        priority: 'maintenance',
+      },
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     test.skip(
@@ -167,7 +186,7 @@ test.describe('completing without a refresh', () => {
     );
 
     const complete = page.getByRole('button', { name: 'Complete' }).first();
-    if ((await complete.count()) === 0) test.skip(true, 'Nothing completable on Today.');
+    await expect(complete).toBeVisible();
 
     /**
      * Marks the document so a full navigation is detectable. If the page

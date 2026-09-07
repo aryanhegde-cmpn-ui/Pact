@@ -119,7 +119,7 @@ export function NotificationBell(): React.JSX.Element {
         {unread > 0 ? (
           <span
             aria-hidden="true"
-            className="bg-signal absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-[color:var(--pact-base)]"
+            className="bg-signal absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-on-signal"
           >
             {unread > 9 ? '9+' : unread}
           </span>

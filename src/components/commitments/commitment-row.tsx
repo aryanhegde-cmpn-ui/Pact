@@ -158,7 +158,7 @@ export function CommitmentRow({
             <button
               type="button"
               onClick={() => setReckoning(true)}
-              className="bg-signal mt-sm min-h-11 w-full rounded px-md text-sm font-medium text-[color:var(--pact-base)]"
+              className="bg-signal mt-sm min-h-11 w-full rounded px-md text-sm font-medium text-on-signal"
             >
               Reckon with it
             </button>

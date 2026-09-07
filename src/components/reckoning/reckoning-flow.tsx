@@ -107,7 +107,7 @@ export function ReckoningFlow({
               type="button"
               disabled={busy}
               onClick={() => setStep(2)}
-              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-[color:var(--pact-base)] disabled:opacity-50"
+              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-on-signal disabled:opacity-50"
             >
               No
             </button>
@@ -206,7 +206,7 @@ export function ReckoningFlow({
                   recovery: buildRecovery(action, detail, commitment),
                 });
               }}
-              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-[color:var(--pact-base)] disabled:opacity-50"
+              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-on-signal disabled:opacity-50"
             >
               {busy ? 'Recording…' : 'Record it'}
             </button>

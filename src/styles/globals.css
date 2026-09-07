@@ -83,6 +83,23 @@
     font-variant-numeric: tabular-nums slashed-zero;
   }
 
+  /*
+   * Foreground for anything sitting ON the accent.
+   *
+   * `text-base` cannot be used for this. The palette names a colour `base` and
+   * the type scale names a size `base`, and Tailwind resolves `text-*` against
+   * the font-size scale first -- so `text-base` sets 16px and leaves the colour
+   * alone. On a `bg-signal` button that means signal text on a signal ground:
+   * invisible, and invisible only in the hover state, which is exactly the kind
+   * of thing that ships.
+   *
+   * Every call site used to spell this `text-on-signal`. One
+   * name, so the trap has an obvious answer.
+   */
+  .text-on-signal {
+    color: var(--pact-base);
+  }
+
   /* The display figure. Only the ring's numerator uses this. */
   .figures-display {
     font-family: var(--pact-font-mono);
