@@ -24,13 +24,47 @@ import { defineConfig } from '@playwright/test';
  *    (see `vitest.config.mts`). Either barrier alone is sufficient; together a
  *    file has to be both misplaced and misnamed before the suites collide.
  *
- * There are no specs yet, so there is no `webServer` block. Add one alongside
- * the first spec rather than in advance -- a `webServer` pointing at a build
- * nothing tests is a slow no-op that still has to be maintained.
+ * The `webServer` block reuses an already-running `next start` when there is
+ * one, so the local loop is "build once, run the specs many times" rather than
+ * a rebuild per invocation.
  */
 export default defineConfig({
+  /**
+   * 390px is an iPhone 14/15 at its narrowest, and the width the definition of
+   * done names. Every layout assertion here is at that width -- the desktop
+   * case is the secondary one and a desktop-only check would prove the wrong
+   * thing.
+   */
+  use: {
+    baseURL: process.env.PACT_E2E_URL ?? 'http://127.0.0.1:3000',
+    viewport: { width: 390, height: 844 },
+  },
+
+  webServer: {
+    command: 'npm run start',
+    url: process.env.PACT_E2E_URL ?? 'http://127.0.0.1:3000',
+    reuseExistingServer: true,
+    timeout: 120_000,
+  },
+
   testDir: './e2e',
-  testMatch: '**/*.spec.ts',
+
+  /**
+   * Two projects: sign in once, then run everything against that session.
+   *
+   * Signing in per spec is both slow and flaky here -- attempts are throttled
+   * per account, and thirteen of them in a few seconds is the shape the
+   * throttle exists to refuse.
+   */
+  projects: [
+    { name: 'setup', testMatch: /.*\.setup\.ts$/ },
+    {
+      name: 'app',
+      testMatch: '**/*.spec.ts',
+      dependencies: ['setup'],
+      use: { storageState: 'test-results/.auth/primary.json' },
+    },
+  ],
 
   // CI must never silently run a subset because a `.only` was committed.
   forbidOnly: Boolean(process.env.CI),

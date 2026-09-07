@@ -128,24 +128,40 @@ export function RecoveryMode({ initial }: { initial: RecoveryState }): React.JSX
   );
 }
 
+/**
+ * Choosing which commitment fills a slot.
+ *
+ * The OUTCOME is shown, in the option text and again under the select, because
+ * the title alone is not an identifier. Two commitments called "Call the bank"
+ * turned up in the first real data, and abandon is the only slot that cannot
+ * be undone -- picking the wrong one there destroys a commitment the user
+ * still meant to keep, and they would have no way to tell it had happened.
+ */
 function Picker({
   name,
   suggested,
   candidates,
+  onSelect,
 }: {
   name: string;
   suggested: RecoveryCandidate;
   candidates: RecoveryCandidate[];
+  onSelect: (candidate: RecoveryCandidate) => void;
 }): React.JSX.Element {
   return (
     <select
       name={name}
       defaultValue={suggested.id}
+      onChange={(event) => {
+        const chosen = candidates.find((candidate) => candidate.id === event.target.value);
+        if (chosen) onSelect(chosen);
+      }}
       className="border-edge bg-base min-h-11 w-full rounded border px-sm text-sm"
     >
       {candidates.map((candidate) => (
         <option key={candidate.id} value={candidate.id}>
-          {candidate.title} · {candidate.estimateMinutes}m · {candidate.daysOverdue}d late
+          {candidate.title} — {candidate.outcome} · {candidate.estimateMinutes}m ·{' '}
+          {candidate.daysOverdue}d late
         </option>
       ))}
     </select>
@@ -170,6 +186,7 @@ function Slot({
   onResolve: (body: Record<string, unknown>) => void;
 }): React.JSX.Element {
   const [reason, setReason] = useState<MissReason>('underestimated');
+  const [chosen, setChosen] = useState<RecoveryCandidate | null>(null);
 
   if (done) {
     return (
@@ -216,9 +233,21 @@ function Slot({
         }}
         className="mt-sm flex flex-col gap-sm"
       >
-        <Picker name="commitmentId" suggested={suggested} candidates={candidates} />
+        <Picker
+          name="commitmentId"
+          suggested={suggested}
+          candidates={candidates}
+          onSelect={setChosen}
+        />
 
-        <p className="text-text/50 text-xs">{suggested.outcome}</p>
+        {/* Tracks the SELECTION, not the suggestion. A static line here would
+            describe a different commitment the moment the select changed. */}
+        <p className="text-text/50 text-xs">{(chosen ?? suggested).outcome}</p>
+        <p className="text-text/40 text-xs">
+          {(chosen ?? suggested).estimateMinutes} min · {(chosen ?? suggested).daysOverdue} days
+          past due
+          {(chosen ?? suggested).neverStarted ? ' · never started' : ''}
+        </p>
 
         {slot === 'finish' ? (
           <input

@@ -191,11 +191,37 @@ export interface PostponementRow {
   /** True when some changes predate the category requirement. */
   hasLegacyChanges: boolean;
   interventionCandidate: boolean;
+  /**
+   * Deadlines this commitment has missed, counting each distinct one once.
+   *
+   * More than one means it was missed, moved, and missed again.
+   */
+  deadlinesMissed: number;
+  /** Misses that were answered. Fewer than `deadlinesMissed` means a debt. */
+  deadlinesReckoned: number;
   dueAt: string;
   originalDueAt: string;
 }
 
 export interface PostponementGroups {
+  /**
+   * Missed, answered, rescheduled, and missed again.
+   *
+   * ---------------------------------------------------------------------
+   * THE SIGNATURE THIS PRODUCT EXISTS TO CATCH.
+   * ---------------------------------------------------------------------
+   * A different state from "missed once and never answered", and a far worse
+   * one. An unanswered miss is a question outstanding. This is a question
+   * that was answered, acted on with a new date chosen deliberately, and then
+   * missed anyway -- which says the answer did not hold, and that the new
+   * date was optimism rather than a plan.
+   *
+   * In a flat overdue list it is indistinguishable from any other late row,
+   * which is precisely how the pattern stays invisible: every individual
+   * reschedule looked reasonable at the time.
+   * ---------------------------------------------------------------------
+   */
+  relapsed: PostponementRow[];
   once: PostponementRow[];
   twice: PostponementRow[];
   /** Three or more. Worth a conversation, not another reschedule. */
@@ -219,7 +245,7 @@ export async function listPostponements(ownerId: string): Promise<PostponementGr
   ]);
 
   const ids = changed.map((row) => row._id);
-  if (ids.length === 0) return { once: [], twice: [], chronic: [] };
+  if (ids.length === 0) return { relapsed: [], once: [], twice: [], chronic: [] };
 
   const commitments = await CommitmentModel.find({ _id: { $in: ids }, ownerId }).lean();
   const events = await EventModel.find(
@@ -228,6 +254,32 @@ export async function listPostponements(ownerId: string): Promise<PostponementGr
   )
     .sort({ ts: 1 })
     .lean();
+
+  /**
+   * Misses and their answers, keyed on the DEADLINE rather than the entity.
+   *
+   * `ts` is the missed deadline for both types, which is what makes "missed
+   * twice" countable at all: keying on the entity would collapse a commitment
+   * missed in September and again in October into one miss and hide exactly
+   * the pattern being looked for.
+   */
+  const missEvents = await EventModel.find(
+    {
+      ownerId,
+      entityId: { $in: ids },
+      type: { $in: ['DEADLINE_MISSED', 'RECKONING_SUBMITTED'] },
+    },
+    { entityId: 1, ts: 1, type: 1 },
+  ).lean();
+
+  const missed = new Map<string, Set<number>>();
+  const reckoned = new Map<string, Set<number>>();
+  for (const event of missEvents) {
+    const target = event.type === 'DEADLINE_MISSED' ? missed : reckoned;
+    const deadlines = target.get(event.entityId) ?? new Set<number>();
+    deadlines.add(event.ts.getTime());
+    target.set(event.entityId, deadlines);
+  }
 
   const byEntity = new Map<string, ReckoningEvent[]>();
   for (const event of events) {
@@ -270,6 +322,8 @@ export async function listPostponements(ownerId: string): Promise<PostponementGr
         (event) => !(event.payload as { category?: string })?.category,
       ),
       interventionCandidate: summary.interventionCandidate,
+      deadlinesMissed: missed.get(id)?.size ?? 0,
+      deadlinesReckoned: reckoned.get(id)?.size ?? 0,
       dueAt: commitment.dueAt.toISOString(),
       originalDueAt: commitment.originalDueAt.toISOString(),
     };
@@ -280,10 +334,24 @@ export async function listPostponements(ownerId: string): Promise<PostponementGr
   const byDrift = (a: PostponementRow, b: PostponementRow) =>
     b.totalDaysPostponed - a.totalDaysPostponed;
 
+  /**
+   * Missed more than once, having answered for at least one of them.
+   *
+   * Both halves matter. Two misses with no reckoning between them is a
+   * commitment nobody has looked at; two misses WITH one is a commitment
+   * somebody looked at, made a decision about, and missed again anyway.
+   */
+  const isRelapsed = (row: PostponementRow) => row.deadlinesMissed > 1 && row.deadlinesReckoned > 0;
+
+  const relapsed = rows.filter(isRelapsed);
+  // Shown once, at the top. A row in two groups reads as two problems.
+  const rest = rows.filter((row) => !isRelapsed(row));
+
   return {
-    once: rows.filter((row) => row.changes === 1).sort(byDrift),
-    twice: rows.filter((row) => row.changes === 2).sort(byDrift),
-    chronic: rows.filter((row) => row.changes >= 3).sort(byDrift),
+    relapsed: relapsed.sort(byDrift),
+    once: rest.filter((row) => row.changes === 1).sort(byDrift),
+    twice: rest.filter((row) => row.changes === 2).sort(byDrift),
+    chronic: rest.filter((row) => row.changes >= 3).sort(byDrift),
   };
 }
 

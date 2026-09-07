@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { currentActor } from '@/lib/api/guard';
+import { gateDuringRecovery } from '@/lib/commitments/recovery-gate';
 
 import { listPostponements, type PostponementRow } from '@/lib/commitments/timeline';
 
@@ -18,8 +19,18 @@ export default async function PostponementsPage(): Promise<React.JSX.Element> {
   const actor = await currentActor();
   if (!actor) redirect('/');
 
+  /**
+   * Recovery mode takes this surface away, not just the dashboard.
+   *
+   * A planner is a whole surface for deciding what to do next, offered to
+   * someone who already has more than they can keep. Reading it while behind
+   * is how a backlog becomes a bigger plan.
+   */
+  await gateDuringRecovery(actor.ownerId);
+
   const groups = await listPostponements(actor.ownerId);
-  const total = groups.once.length + groups.twice.length + groups.chronic.length;
+  const total =
+    groups.relapsed.length + groups.once.length + groups.twice.length + groups.chronic.length;
 
   return (
     <div className="flex flex-col gap-lg">
@@ -31,6 +42,18 @@ export default async function PostponementsPage(): Promise<React.JSX.Element> {
             : `${total} commitment${total === 1 ? '' : 's'} with a moved deadline, most drifted first.`}
         </p>
       </header>
+
+      {/*
+        First, and separately, because it is a different fact from the groups
+        below. Those count how often a deadline moved; this one says the moving
+        did not work -- answered for, given a new date, and missed again.
+      */}
+      <Group
+        title={`Answered, moved, missed again · ${groups.relapsed.length}`}
+        rows={groups.relapsed}
+        emphasis
+        note="A reckoning was submitted, a new date was chosen deliberately, and that one passed too. The answer did not hold."
+      />
 
       <Group
         title={`Moved three or more times · ${groups.chronic.length}`}
@@ -87,6 +110,14 @@ function Group({
               {row.changes}× moved · {row.totalDaysPostponed}d total drift
               {row.mostCommonCategoryLabel ? ` · usually "${row.mostCommonCategoryLabel}"` : ''}
             </p>
+
+            {/* Spelled out where it applies. "2× moved" does not say that two
+                separate deadlines were missed, and that is the harder fact. */}
+            {row.deadlinesMissed > 1 ? (
+              <p className="text-text/60 mt-2xs text-xs">
+                {row.deadlinesMissed} deadlines missed · {row.deadlinesReckoned} answered
+              </p>
+            ) : null}
 
             <Link
               href={`/dashboard?timeline=${row.id}`}

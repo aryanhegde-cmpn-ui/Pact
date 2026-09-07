@@ -1,89 +1,62 @@
-import { CommitmentList } from '@/components/commitments/commitment-list';
-import { RecoveryMode } from '@/components/recovery/recovery-mode';
-import { getRecoveryState } from '@/lib/commitments/recovery';
-import { listByDateRange, listOverdue } from '@/lib/commitments/service';
 import { redirect } from 'next/navigation';
 
+import { RecoveryMode } from '@/components/recovery/recovery-mode';
+import { Today } from '@/components/today/today';
 import { currentActor } from '@/lib/api/guard';
+import { recoveryForRequest } from '@/lib/commitments/recovery-gate';
 import { getEnv } from '@/lib/env';
 import { getSettings } from '@/lib/notifications/settings';
+import { buildDay } from '@/lib/today/service';
 import { toDateKey } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Dashboard' };
+export const metadata = { title: 'Today' };
 
 /**
- * The interactive surface.
+ * Today.
  *
- * Rendered on the server so the first paint already has the data: this is
+ * Rendered on the server so the first paint already has the day: this is
  * opened on a phone, often on a slow connection, and a spinner followed by a
- * list is a worse answer to "what have I committed to today?" than the list.
+ * greeting is a worse answer to "what have I committed to today?" than the
+ * greeting.
+ *
+ * Reading is also what materialises the day's occurrences and records observed
+ * misses -- there is no scheduler that will have run first.
  */
-export default async function DashboardPage(): Promise<React.JSX.Element> {
-  const timeZone = getEnv().APP_TIMEZONE;
-  const now = new Date();
-  const today = toDateKey(now, timeZone);
-
-  // Reading is what materialises series occurrences and records observed
-  // misses -- there is no scheduler doing it beforehand.
+export default async function TodayPage(): Promise<React.JSX.Element> {
   const actor = await currentActor();
   if (!actor) redirect('/');
+
   const ownerId = actor.ownerId;
 
   /**
    * Recovery mode REPLACES this page. It is not a banner on top of it.
    *
-   * A backlog past the thresholds makes the normal dashboard actively harmful:
-   * a long overdue list invites rescheduling all of it, and the result is a
-   * bigger plan than the one already not being kept. So the list, the
-   * curriculum, the drift and the metrics all go, and three commitments with
-   * three different dispositions take their place.
-   *
-   * Checked first and returned early, so none of the rest is even queried.
+   * Checked first and returned early, so none of the rest is even queried: a
+   * long overdue list invites rescheduling all of it, and the result is a
+   * bigger plan than the one already not being kept.
    */
-  const recovery = await getRecoveryState(ownerId, now);
+  const recovery = await recoveryForRequest(ownerId);
   if (recovery.active) return <RecoveryMode initial={recovery} />;
 
-  const [commitments, overdue, settings] = await Promise.all([
-    listByDateRange(today, today, timeZone, ownerId, now),
-    listOverdue(ownerId, now),
+  const timeZone = getEnv().APP_TIMEZONE;
+  const now = new Date();
+
+  const [day, settings] = await Promise.all([
+    buildDay(ownerId, toDateKey(now, timeZone), now),
     getSettings(ownerId),
   ]);
 
-  const inRange = new Set(commitments.map((c) => c.id));
-
   return (
-    <div className="flex flex-col gap-lg">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">Today</h1>
-        <p className="text-text/50 mt-2xs text-sm">
-          {new Intl.DateTimeFormat('en-GB', {
-            timeZone,
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-          }).format(now)}
-        </p>
-      </header>
-
-      <CommitmentList
-        initial={{
-          commitments,
-          overdue: overdue.commitments.filter((c) => !inRange.has(c.id)),
-          // The page is bounded, so the surface has to say what it is a page
-          // OF. "15" with no denominator reads as "15 overdue".
-          overdueTotal: overdue.total,
-          needsReckoningTotal: overdue.needsReckoning,
-        }}
-        timeZone={timeZone}
-        today={today}
-        // Public by design -- the browser needs it to subscribe. The private
-        // half never leaves the server.
-        vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
-        lastDispatchAt={settings.lastDispatchAt?.toISOString() ?? null}
-        nowIso={now.toISOString()}
-      />
-    </div>
+    <Today
+      initial={day}
+      timeZone={timeZone}
+      // Public by design -- the browser needs it to subscribe. The private
+      // half never leaves the server.
+      vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+      lastDispatchAt={settings.lastDispatchAt?.toISOString() ?? null}
+      nowIso={now.toISOString()}
+    />
   );
 }

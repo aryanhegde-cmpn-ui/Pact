@@ -20,6 +20,23 @@
   --pact-text: #e6eaef; /* foreground; dim with /60, /40 as needed */
   --pact-signal: #d8763a; /* attention. Never a reward, never a celebration. */
 
+  /*
+   * ---- State vocabulary ------------------------------------------------
+   * There is no sixth colour for "done", and there must not be. `signal` is
+   * reserved for "this needs you", so every other state is a VALUE
+   * distinction on the one foreground:
+   *
+   *   text        done, present, real
+   *   text/60     a secondary fact
+   *   text/40     metadata: times, counts, labels
+   *   text/25     not yet, absent, the empty half of a gauge
+   *   edge        structure -- rules, tracks, inactive strokes
+   *   signal      needs you. At most twice on a screen.
+   *
+   * A hue for "complete" would be a reward colour, and a reward for
+   * completing is the one reward this app is allowed to withhold.
+   */
+
   /* ---- Type scale ----------------------------------------------------- */
   --pact-text-xs: 0.75rem; /* 12px - metadata, timestamps */
   --pact-text-sm: 0.875rem; /* 14px - secondary text */
@@ -28,9 +45,17 @@
   --pact-text-xl: 1.375rem; /* 22px - section headings */
   --pact-text-2xl: 1.75rem; /* 28px - page headings */
   --pact-text-3xl: 2.25rem; /* 36px - mirror-surface display */
+  --pact-text-display: 2.75rem; /* 44px - the ring's numerator, and nothing else */
 
   --pact-leading-tight: 1.2;
   --pact-leading-normal: 1.55;
+
+  /*
+   * Large numerals set at their default tracking read as a browser default
+   * rather than as something typeset. Negative tracking is most of what makes
+   * a display figure look deliberate.
+   */
+  --pact-tracking-display: -0.02em;
 
   /* ---- Spacing scale -------------------------------------------------- */
   --pact-space-2xs: 0.25rem; /*  4px */
@@ -47,6 +72,15 @@
   --pact-font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     'Noto Sans', sans-serif;
+  /*
+   * The FIGURE face, not a code face.
+   *
+   * Every measured number in the app is set in this: times, durations, counts,
+   * percentages. That is the printed-ledger reference done properly -- columns
+   * of figures align, and a duration reads as a quantity rather than as words.
+   * Applied through the `.figures` class below, which also turns on tabular
+   * and slashed-zero.
+   */
   --pact-font-mono:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }

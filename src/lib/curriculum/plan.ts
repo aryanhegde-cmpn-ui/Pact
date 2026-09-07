@@ -59,6 +59,9 @@ export interface PlanContext {
     area: string;
     exactActivity: string;
     durationMinutes: number | null;
+    /** Wall clock in APP_TIMEZONE, straight from the workbook. */
+    startTime: string | null;
+    endTime: string | null;
   }[];
   phases: {
     number: number;
@@ -111,6 +114,8 @@ export async function loadPlanContext(
       area: block.area,
       exactActivity: block.exactActivity,
       durationMinutes: block.durationMinutes ?? null,
+      startTime: block.startTime ?? null,
+      endTime: block.endTime ?? null,
     })),
     phases: phases.map((phase) => ({
       number: phase.number,

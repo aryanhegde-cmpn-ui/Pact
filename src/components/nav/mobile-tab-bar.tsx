@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { navItems } from './nav-items';
+import { navItems, visibleNavItems } from './nav-items';
 
-export function MobileTabBar() {
+export function MobileTabBar({ inRecovery = false }: { inRecovery?: boolean }) {
   const pathname = usePathname();
+  const items = visibleNavItems(navItems, inRecovery);
 
   return (
     <nav
@@ -14,7 +15,7 @@ export function MobileTabBar() {
       className="border-edge bg-surface fixed inset-x-0 bottom-0 z-10 border-t pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       <ul className="flex">
-        {navItems.map((item) => {
+        {items.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
@@ -23,7 +24,7 @@ export function MobileTabBar() {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={[
-                  'flex flex-col items-center gap-2xs py-sm text-xs transition-colors',
+                  'flex min-h-14 flex-col items-center justify-center gap-2xs py-sm text-xs transition-colors',
                   active ? 'text-signal' : 'text-text/60',
                 ].join(' ')}
               >

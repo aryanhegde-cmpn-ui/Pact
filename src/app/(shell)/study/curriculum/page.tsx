@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { CurriculumBrowser } from '@/components/study/curriculum-browser';
 import { currentActor } from '@/lib/api/guard';
+import { gateDuringRecovery } from '@/lib/commitments/recovery-gate';
 import { getCurriculumBrowser, listResources } from '@/lib/curriculum/service';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,15 @@ export const metadata = { title: 'Curriculum' };
 export default async function CurriculumPage(): Promise<React.JSX.Element> {
   const actor = await currentActor();
   if (!actor) redirect('/');
+
+  /**
+   * Recovery mode takes this surface away, not just the dashboard.
+   *
+   * A planner is a whole surface for deciding what to do next, offered to
+   * someone who already has more than they can keep. Reading it while behind
+   * is how a backlog becomes a bigger plan.
+   */
+  await gateDuringRecovery(actor.ownerId);
 
   const [blocks, resources] = await Promise.all([
     getCurriculumBrowser(actor.ownerId),

@@ -89,7 +89,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
           onChange={(e) => setIdentifier(e.target.value)}
           aria-invalid={Boolean(fieldErrors.identifier)}
           aria-describedby={fieldErrors.identifier ? 'identifier-error' : undefined}
-          className="rounded border border-edge bg-surface px-md py-sm text-text outline-none focus:border-signal disabled:opacity-50"
+          className="border-edge bg-surface text-text focus:border-signal min-h-11 rounded border px-md outline-none disabled:opacity-50"
           disabled={submitting}
         />
         {fieldErrors.identifier ? (
@@ -112,7 +112,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
           onChange={(e) => setPassword(e.target.value)}
           aria-invalid={Boolean(fieldErrors.password)}
           aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-          className="rounded border border-edge bg-surface px-md py-sm text-text outline-none focus:border-signal disabled:opacity-50"
+          className="border-edge bg-surface text-text focus:border-signal min-h-11 rounded border px-md outline-none disabled:opacity-50"
           disabled={submitting}
         />
         {fieldErrors.password ? (
@@ -123,10 +123,10 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
       </div>
 
       {formError ? (
-        <p
-          role="alert"
-          className="rounded border border-signal/40 bg-signal/10 px-md py-sm text-sm text-signal"
-        >
+        // A left rule, like every other annotation in the app. A tinted panel
+        // would be a second thing drawn in the accent on a page that already
+        // has one -- the button.
+        <p role="alert" className="border-signal text-signal border-l-2 pl-md text-sm">
           {formError}
         </p>
       ) : null}
@@ -134,7 +134,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
       <button
         type="submit"
         disabled={submitting}
-        className="rounded bg-signal px-md py-sm font-medium text-[color:var(--pact-base)] transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="bg-signal text-on-signal mt-sm min-h-14 rounded px-md font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
       >
         {submitting ? 'Signing in…' : 'Sign in'}
       </button>

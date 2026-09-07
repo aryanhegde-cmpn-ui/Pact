@@ -66,6 +66,8 @@ const CONTEXT: PlanContext = {
       area: 'Frontend Engineering',
       exactActivity: 'Hands-on build',
       durationMinutes: 90,
+      startTime: '08:00',
+      endTime: '09:30',
     },
   ],
   phases: [
