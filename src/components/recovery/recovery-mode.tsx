@@ -156,7 +156,7 @@ function Picker({
         const chosen = candidates.find((candidate) => candidate.id === event.target.value);
         if (chosen) onSelect(chosen);
       }}
-      className="border-edge bg-base min-h-11 w-full rounded border px-sm text-sm"
+      className="border-edge bg-ground min-h-11 w-full rounded border px-sm text-sm"
     >
       {candidates.map((candidate) => (
         <option key={candidate.id} value={candidate.id}>
@@ -253,7 +253,7 @@ function Slot({
           <input
             name="note"
             placeholder="What changed? One line, optional."
-            className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
           />
         ) : null}
 
@@ -265,7 +265,7 @@ function Slot({
                 name="reason"
                 value={reason}
                 onChange={(event) => setReason(event.target.value as MissReason)}
-                className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
               >
                 {missReasonSchema.options.map((option) => (
                   <option key={option} value={option}>
@@ -293,7 +293,7 @@ function Slot({
               name="nextAction"
               required
               placeholder="The concrete next action. Required before any reschedule."
-              className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+              className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
             />
             <label className="flex flex-col gap-2xs">
               <span className="text-text/50 text-xs">New deadline</span>
@@ -301,7 +301,7 @@ function Slot({
                 name="newDueAt"
                 type="datetime-local"
                 required
-                className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
               />
             </label>
           </>
@@ -312,7 +312,7 @@ function Slot({
             name="reason"
             required
             placeholder="Why are you stopping? This goes on the record."
-            className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
           />
         ) : null}
 

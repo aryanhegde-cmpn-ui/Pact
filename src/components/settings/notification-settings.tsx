@@ -247,7 +247,7 @@ export function NotificationSettings({ initial }: { initial: Settings }): React.
 }
 
 const INPUT =
-  'border-edge bg-base text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
+  'border-edge bg-ground text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

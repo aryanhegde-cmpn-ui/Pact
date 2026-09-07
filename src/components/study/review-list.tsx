@@ -91,7 +91,7 @@ export function ReviewList({ initial }: { initial: FlaggedTopic[] }): React.JSX.
               <select
                 name="kind"
                 defaultValue="other"
-                className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
               >
                 {targetKindSchema.options.map((kind) => (
                   <option key={kind} value={kind}>
@@ -106,7 +106,7 @@ export function ReviewList({ initial }: { initial: FlaggedTopic[] }): React.JSX.
               <select
                 name="unit"
                 defaultValue=""
-                className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
               >
                 <option value="">none</option>
                 <option value="problems">problems</option>
@@ -120,7 +120,7 @@ export function ReviewList({ initial }: { initial: FlaggedTopic[] }): React.JSX.
                 name="targetMin"
                 type="number"
                 min={1}
-                className="border-edge bg-base min-h-11 w-20 rounded border px-sm text-sm"
+                className="border-edge bg-ground min-h-11 w-20 rounded border px-sm text-sm"
               />
             </label>
 
@@ -130,7 +130,7 @@ export function ReviewList({ initial }: { initial: FlaggedTopic[] }): React.JSX.
                 name="targetMax"
                 type="number"
                 min={1}
-                className="border-edge bg-base min-h-11 w-20 rounded border px-sm text-sm"
+                className="border-edge bg-ground min-h-11 w-20 rounded border px-sm text-sm"
               />
             </label>
 

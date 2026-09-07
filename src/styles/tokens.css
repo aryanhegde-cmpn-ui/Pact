@@ -14,7 +14,16 @@
   color-scheme: dark;
 
   /* ---- Palette (5) ---------------------------------------------------- */
-  --pact-base: #0b0d10; /* page ground */
+  /*
+   * Named `ground`, not `base`.
+   *
+   * `base` collided with the type scale's `--text-base`, and Tailwind resolves
+   * `text-*` against font sizes first -- so `text-base` set 16px and silently
+   * left the colour alone. That shipped once, on a hover state, as invisible
+   * text on the accent. `src/lib/design-tokens.test.ts` now fails if any colour
+   * name is also a type-scale name.
+   */
+  --pact-ground: #0b0d10; /* page ground */
   --pact-surface: #14181d; /* panels, cards, raised areas */
   --pact-edge: #262d35; /* borders, dividers, inactive strokes */
   --pact-text: #e6eaef; /* foreground; dim with /60, /40 as needed */

@@ -9,6 +9,7 @@ import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { NotificationPermission } from '@/components/pwa/notification-permission';
 import { PushReconciler } from '@/components/pwa/push-reconciler';
 import { StalenessBanner } from '@/components/pwa/staleness-banner';
+import { StakesStatusLine } from '@/components/stakes/status-line';
 import type { TodayView } from '@/lib/today/service';
 
 import { BlockLedger } from './block-ledger';
@@ -151,6 +152,13 @@ export function Today({
           </ul>
         </section>
       ) : null}
+
+      {/*
+        Between the miss and the next action. It is context for the day, not
+        the thing to do -- and it carries no accent, because a reward drawn in
+        the attention colour is the first step back towards a badge.
+      */}
+      <StakesStatusLine stakes={data.stakes} />
 
       {data.next ? (
         <NextAction next={data.next} />

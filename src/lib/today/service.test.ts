@@ -7,6 +7,8 @@ const store = vi.hoisted(() => ({
   phases: [] as Record<string, unknown>[],
   counts: { total: 0, needsReckoning: 0 },
   context: null as unknown,
+  /** How many times stakes evaluation ran. Tomorrow must never trigger it. */
+  evaluated: 0,
 }));
 
 vi.mock('@/lib/db/mongoose', () => ({ connectToDatabase: async () => ({}) }));
@@ -25,6 +27,30 @@ vi.mock('@/lib/curriculum/plan', async (importOriginal) => {
 });
 vi.mock('@/lib/db/models/phase', () => ({
   PhaseModel: { find: () => ({ sort: () => ({ lean: async () => store.phases }) }) },
+}));
+
+/**
+ * The stakes have their own tests. Here they are a stub, so a Today assertion
+ * cannot fail because a consequence evaluated -- and so that the dynamic
+ * import `readOnlyStakes` uses resolves to the same mock.
+ */
+const EMPTY_STAKES = {
+  onVacation: false,
+  vacationSince: null,
+  adherence: { kept: 0, of: 0, rate: 0, vacationDays: 0, sparse: true },
+  topicsDone: 0,
+  rewards: [],
+  consequences: [],
+  active: null,
+  claimable: [],
+};
+
+vi.mock('@/lib/stakes/service', () => ({
+  evaluateAndGetStakes: async () => {
+    store.evaluated += 1;
+    return EMPTY_STAKES;
+  },
+  readState: async () => EMPTY_STAKES,
 }));
 
 const { buildDay, splitTopicLabel } = await import('./service');
@@ -135,6 +161,7 @@ beforeEach(() => {
   ];
   store.counts = { total: 0, needsReckoning: 0 };
   store.context = CONTEXT;
+  store.evaluated = 0;
 });
 
 describe('the ring denominator', () => {
@@ -361,5 +388,23 @@ describe('the overdue count', () => {
     expect(day.overdue).toEqual({ total: 44, needsReckoning: 34 });
     // No array of overdue rows anywhere on the view.
     expect(Object.keys(day)).not.toContain('overdueList');
+  });
+});
+
+describe('stakes evaluation', () => {
+  it('runs when today is being read', async () => {
+    await buildDay(OWNER, TODAY, NOW);
+
+    expect(store.evaluated).toBe(1);
+  });
+
+  it('does NOT run when tomorrow is', async () => {
+    /**
+     * Looking ahead must not activate a consequence. Evaluation is a side
+     * effect of living through a day, not of previewing one.
+     */
+    await buildDay(OWNER, '2026-09-08', NOW);
+
+    expect(store.evaluated).toBe(0);
   });
 });

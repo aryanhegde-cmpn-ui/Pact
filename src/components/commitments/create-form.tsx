@@ -100,7 +100,7 @@ export function CreateCommitmentForm({
             formatWallClock(new Date(Date.now() + 3 * 60 * 60 * 1000), timeZone).slice(0, 16),
           )
         }
-        className="bg-signal text-on-signal min-h-11 w-full rounded px-md font-medium transition-opacity hover:opacity-90"
+        className="bg-signal text-ground min-h-11 w-full rounded px-md font-medium transition-opacity hover:opacity-90"
       >
         Make a commitment
       </button>
@@ -160,7 +160,7 @@ export function CreateCommitmentForm({
         <button
           type="submit"
           disabled={submitting}
-          className="bg-signal text-on-signal min-h-11 flex-1 rounded px-md font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="bg-signal text-ground min-h-11 flex-1 rounded px-md font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? 'Saving…' : 'Commit'}
         </button>
@@ -178,7 +178,7 @@ export function CreateCommitmentForm({
 }
 
 const INPUT =
-  'border-edge bg-base text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
+  'border-edge bg-ground text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
 
 function Field({
   label,

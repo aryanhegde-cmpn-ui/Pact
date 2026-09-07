@@ -330,7 +330,7 @@ function BudgetInterrupt({
             name="justification"
             required
             placeholder="What specifically are you still looking for?"
-            className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
           />
           <label className="flex flex-col gap-2xs">
             <span className="text-text/50 text-xs">More minutes</span>
@@ -340,7 +340,7 @@ function BudgetInterrupt({
               min={1}
               max={120}
               defaultValue={15}
-              className="border-edge bg-base min-h-11 w-24 rounded border px-sm text-sm"
+              className="border-edge bg-ground min-h-11 w-24 rounded border px-sm text-sm"
             />
           </label>
           <button
@@ -440,7 +440,7 @@ function ExitForm({
               name="note"
               required
               placeholder="One line. This is what separates finished from ticked off."
-              className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+              className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
             />
           </label>
 
@@ -463,7 +463,7 @@ function ExitForm({
                     name="problemsSolved"
                     type="number"
                     min={0}
-                    className="border-edge bg-base min-h-11 w-24 rounded border px-sm text-sm"
+                    className="border-edge bg-ground min-h-11 w-24 rounded border px-sm text-sm"
                   />
                 </label>
               ) : null}
@@ -500,13 +500,13 @@ function ExitForm({
               min={1}
               required
               defaultValue={session.plannedMinutes ?? 30}
-              className="border-edge bg-base min-h-11 w-28 rounded border px-sm text-sm"
+              className="border-edge bg-ground min-h-11 w-28 rounded border px-sm text-sm"
             />
           </label>
           <input
             name="note"
             placeholder="Anything worth remembering? Optional."
-            className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
           />
         </>
       ) : null}
@@ -519,7 +519,7 @@ function ExitForm({
               name="blockerKind"
               value={blockerKind}
               onChange={(event) => setBlockerKind(event.target.value as BlockerKind)}
-              className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+              className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
             >
               {blockerKindSchema.options.map((option) => (
                 <option key={option} value={option}>
@@ -533,7 +533,7 @@ function ExitForm({
             name="blocker"
             required
             placeholder={blockerKind === 'person' ? 'Who?' : 'What is missing?'}
-            className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
           />
 
           {/*
@@ -551,7 +551,7 @@ function ExitForm({
                 <input
                   name="followUpAt"
                   type="datetime-local"
-                  className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                  className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
                 />
               </label>
             </>

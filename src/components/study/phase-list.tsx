@@ -103,7 +103,7 @@ export function PhaseList({ initial }: { initial: PhaseView[] }): React.JSX.Elem
                   type="date"
                   required
                   defaultValue={phase.endDate}
-                  className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                  className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
                 />
               </label>
 
@@ -115,7 +115,7 @@ export function PhaseList({ initial }: { initial: PhaseView[] }): React.JSX.Elem
                   minLength={10}
                   rows={2}
                   placeholder="Required. This goes in the log, and the phases after this one move by the same amount."
-                  className="border-edge bg-base rounded border p-sm text-sm"
+                  className="border-edge bg-ground rounded border p-sm text-sm"
                 />
               </label>
 

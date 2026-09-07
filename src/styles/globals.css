@@ -16,7 +16,7 @@
 /* `inline` so the utilities reference the custom properties rather than copying
    their values, keeping tokens.css the single place a token is defined. */
 @theme inline {
-  --color-base: var(--pact-base);
+  --color-ground: var(--pact-ground);
   --color-surface: var(--pact-surface);
   --color-edge: var(--pact-edge);
   --color-text: var(--pact-text);
@@ -58,7 +58,7 @@
   }
 
   body {
-    background-color: var(--pact-base);
+    background-color: var(--pact-ground);
     color: var(--pact-text);
     font-family: var(--pact-font-sans);
     line-height: var(--pact-leading-normal);
@@ -81,23 +81,6 @@
   .figures {
     font-family: var(--pact-font-mono);
     font-variant-numeric: tabular-nums slashed-zero;
-  }
-
-  /*
-   * Foreground for anything sitting ON the accent.
-   *
-   * `text-base` cannot be used for this. The palette names a colour `base` and
-   * the type scale names a size `base`, and Tailwind resolves `text-*` against
-   * the font-size scale first -- so `text-base` sets 16px and leaves the colour
-   * alone. On a `bg-signal` button that means signal text on a signal ground:
-   * invisible, and invisible only in the hover state, which is exactly the kind
-   * of thing that ships.
-   *
-   * Every call site used to spell this `text-on-signal`. One
-   * name, so the trap has an obvious answer.
-   */
-  .text-on-signal {
-    color: var(--pact-base);
   }
 
   /* The display figure. Only the ring's numerator uses this. */

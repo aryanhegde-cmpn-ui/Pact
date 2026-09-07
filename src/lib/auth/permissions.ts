@@ -39,8 +39,25 @@ export type Capability =
   /** The raw append-only log. Nobody gets this over HTTP. */
   | 'events:read'
   // --- Stakes --------------------------------------------------------------
+  /** Rewards and consequences: what is configured, and what is active. */
   | 'consequence:read'
+  /**
+   * Configuring them. THE PRIMARY MUST NEVER HOLD THIS.
+   *
+   * Covers rewards as well as consequences: they are one subsystem, and a
+   * separate `reward:write` the primary happened to hold would let them grant
+   * themselves the thing the arrangement is about.
+   */
   | 'consequence:write'
+  /** Claiming a reward already earned. The primary's own action. */
+  | 'reward:claim'
+  /**
+   * Vacation mode. The PRIMARY's, and deliberately not the overseer's.
+   *
+   * A vacation an overseer can veto is one you route around by not opening the
+   * app -- and an accountability tool nobody opens reports nothing at all.
+   */
+  | 'vacation:write'
   // --- The arrangement -----------------------------------------------------
   | 'relationship:invite'
   | 'relationship:revoke'
@@ -76,6 +93,8 @@ const MATRIX: Record<Role, readonly Capability[]> = {
     'progress:read',
     'notes:read',
     'consequence:read',
+    'reward:claim',
+    'vacation:write',
     'relationship:invite',
     'relationship:revoke',
     'settings:read',
@@ -140,6 +159,8 @@ export const ALL_CAPABILITIES: readonly Capability[] = [
   'events:read',
   'consequence:read',
   'consequence:write',
+  'reward:claim',
+  'vacation:write',
   'relationship:invite',
   'relationship:revoke',
   'settings:read',
@@ -155,3 +176,17 @@ export const ALL_ROLES: readonly Role[] = ['primary', 'overseer'];
  * rather than an absence someone has to notice.
  */
 export const UNGRANTED_CAPABILITIES: readonly Capability[] = ['events:read'];
+
+/**
+ * Configuring stakes. The primary holds none of these, ever.
+ *
+ * Exported as a list so the rule can be checked by ENUMERATION rather than by
+ * naming routes: `src/lib/stakes-authorization.test.ts` walks every route file
+ * under `api/stakes/` and fails if any of them requires a capability the
+ * primary holds. A route added later without a guard, or with the wrong one,
+ * fails without anybody remembering to add it to a list.
+ *
+ * An arrangement whose subject can edit their own consequences is not an
+ * arrangement.
+ */
+export const STAKES_CONFIG_CAPABILITIES: readonly Capability[] = ['consequence:write'];

@@ -46,6 +46,27 @@ export const eventTypeSchema = z.enum([
    */
   'RECOVERY_MODE_ENTERED',
   'RECOVERY_MODE_EXITED',
+  // --- Stakes -------------------------------------------------------------
+  'REWARD_CONFIGURED',
+  'REWARD_EARNED',
+  'REWARD_CLAIMED',
+  'CONSEQUENCE_CONFIGURED',
+  'CONSEQUENCE_ACTIVATED',
+  /**
+   * A consequence would have fired while another was active.
+   *
+   * Recorded rather than queued. It says the week was bad enough to fire twice,
+   * which is worth knowing -- but acting on it would stack, and stacking is
+   * what turns a bad week into a state nobody can recover from.
+   */
+  'CONSEQUENCE_SUPPRESSED',
+  /** Ended by the work being put right. The only way out other than expiry. */
+  'CONSEQUENCE_DISCHARGED',
+  'CONSEQUENCE_EXPIRED',
+  // --- Vacation -----------------------------------------------------------
+  /** Recorded so the adherence exclusion is auditable rather than invisible. */
+  'VACATION_STARTED',
+  'VACATION_ENDED',
   // --- Focus sessions -----------------------------------------------------
   'SESSION_STARTED',
   'SESSION_ENDED',
@@ -75,6 +96,10 @@ export const entityTypeSchema = z.enum([
   'recovery',
   /** One sitting of work. Its own entity, so its history survives the commitment's. */
   'session',
+  /** A reward or a consequence. */
+  'stake',
+  /** A vacation period. */
+  'vacation',
 ]);
 export type EntityType = z.infer<typeof entityTypeSchema>;
 

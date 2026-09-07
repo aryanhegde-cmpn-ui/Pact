@@ -175,6 +175,24 @@ export async function revokeRelationship(
 ): Promise<{ revoked: boolean }> {
   await connectToDatabase();
 
+  /**
+   * ACTIVE CONSEQUENCES SURVIVE THIS, DELIBERATELY.
+   *
+   * Nothing here touches the stakes, and nothing may be added that does.
+   * Revoking is about who configures the arrangement in FUTURE; it is not a
+   * way out of stakes already running. If it cleared them, the fastest route
+   * out of any consequence would be to revoke, wait, and re-invite -- which is
+   * the dismiss button the discharge rules exist to refuse, wearing a
+   * different hat.
+   *
+   * They still end on their own terms: discharged by the work being put right,
+   * or expired at their window, which is at most a week. So this is not a
+   * permanent state either -- it is simply not one revocation can shorten.
+   *
+   * Rewards are left alone for the mirror-image reason: something already
+   * earned was earned by the record, and the overseer leaving does not unmake
+   * it. See docs/decisions.md, 040.
+   */
   const result = await RelationshipModel.updateOne(
     { primaryUserId, status: { $in: ['pending', 'active'] } },
     { $set: { status: 'revoked', revokedAt: now, inviteTokenHash: null } },

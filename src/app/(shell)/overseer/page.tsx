@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 
+import { OverseerStakes } from '@/components/stakes/overseer-stakes';
 import { currentActor } from '@/lib/api/guard';
+import { readState } from '@/lib/stakes/service';
 import { buildOverseerSnapshot } from '@/lib/commitments/overseer-view';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +19,16 @@ export default async function OverseerPage(): Promise<React.JSX.Element> {
   const actor = await currentActor();
   if (!actor) redirect('/');
 
-  const snapshot = await buildOverseerSnapshot(actor.ownerId);
+  const [snapshot, stakes] = await Promise.all([
+    buildOverseerSnapshot(actor.ownerId),
+    /**
+     * `readState`, not `evaluateAndGetStakes`. An overseer opening this page
+     * must not be able to activate a consequence: evaluation belongs to the
+     * primary's own page load, so the moment a stake fires is a fact about
+     * their record rather than about who happened to look.
+     */
+    readState(actor.ownerId),
+  ]);
   const { adherence } = snapshot;
 
   return (
@@ -29,6 +40,10 @@ export default async function OverseerPage(): Promise<React.JSX.Element> {
           Kept {adherence.kept} of the last {adherence.of} — {Math.round(adherence.rate * 100)}%
         </p>
       </header>
+
+      {/* Configuration. The only writes on this surface, and they are the
+          only writes the primary has no route to at all. */}
+      <OverseerStakes initial={stakes} />
 
       {!snapshot.notesShared ? (
         <p className="border-edge text-text/50 rounded border px-md py-sm text-xs">

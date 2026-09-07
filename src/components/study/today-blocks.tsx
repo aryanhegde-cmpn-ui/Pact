@@ -115,7 +115,7 @@ export function TodayBlocks({ initial }: { initial: StudyToday }): React.JSX.Ele
                       event.target.value === '' ? null : event.target.value,
                     )
                   }
-                  className="border-edge bg-base min-h-11 rounded border px-sm text-sm"
+                  className="border-edge bg-ground min-h-11 rounded border px-sm text-sm"
                 >
                   <option value="">Nothing in particular</option>
                   {block.alternatives.map((option) => (

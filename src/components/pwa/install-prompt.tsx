@@ -80,7 +80,7 @@ export function InstallPrompt(): React.JSX.Element | null {
         <button
           type="button"
           onClick={() => void promptInstall()}
-          className="bg-signal min-h-11 rounded px-md text-sm font-medium text-on-signal"
+          className="bg-signal min-h-11 rounded px-md text-sm font-medium text-ground"
         >
           Install
         </button>

@@ -1333,3 +1333,245 @@ and hide exactly the pattern being looked for.
   derived on read.
 - One extra query over the event log, bounded to entities that already have a
   deadline change.
+
+## 037 — Colour and type tokens must not share a name
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+The `base` colour is renamed `ground`. `src/lib/design-tokens.test.ts` fails if
+any name appears in both the `--color-*` and `--text-*` namespaces.
+
+### Why
+
+Tailwind's `text-*` utility is overloaded — font size and colour — and resolves
+against the font-size scale first. A colour named `base` next to a type step
+named `base` makes `text-base` silently mean 16px and drops the colour intent
+with no warning, no build error, and nothing obviously wrong on screen.
+
+That shipped: `hover:text-base` on the Start button left signal text on a signal
+ground, invisible, and only in the hover state. Eight other call sites had
+already worked around it with `text-[color:var(--pact-base)]`, which is the
+shape that invited the mistake.
+
+Renaming fixed the instance. The test fixes the class — a future colour called
+`lg` fails in CI rather than in a hover state nobody screenshots.
+
+### Consequences
+
+- `bg-ground` and `text-ground` are ordinary utilities; the bespoke
+  `.text-on-signal` class is gone.
+- The palette assertion doubles as the "still five colours" guard.
+
+## 038 — Every e2e spec provisions its own fixture
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+A spec that mutates state creates what it acts on. `e2e/environment.spec.ts`
+asserts the preconditions the rest assume, and goes red when a conditional skip
+is about to fire.
+
+### Why
+
+The no-refresh check completed the commitment it found, so it passed once and
+skipped on every run afterwards — indistinguishable from a deleted test, with
+the suite still green.
+
+Conditional skips are the same failure in slower motion. Several checks need an
+imported curriculum, an open block, or recovery mode to be off, and written as
+`test.skip(...)` they degrade into silence. They stay, and the environment spec
+is the one thing that fails when the reason for them is present, saying why in
+one line.
+
+### Consequences
+
+- Specs that need a commitment POST one first.
+- A green suite with half of it skipped is no longer possible without the
+  environment spec being red.
+
+## 039 — What the e2e suite structurally could not see
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+`e2e/uncovered.spec.ts` covers unauthenticated routes, the full-screen session
+route, and service-worker registration. The remaining gaps are recorded in that
+file rather than fixed.
+
+### Why
+
+Every spec ran signed in as the primary, inside the nav shell. That excluded
+four whole categories, and the landing-page bug — a 600px form on a 390px
+screen — shipped from the first of them.
+
+**Now covered:** `/`, `/join`, `/offline`, `/focus/:id`, and that the service
+worker registers.
+
+**Deliberately not, and why:**
+
+- **`/overseer` and the stakes configuration pages.** They need a second seeded
+  account and a redeemed single-use invite. The authorization half is covered
+  by enumeration in `src/lib/stakes-authorization.test.ts`, which is the half
+  that matters — but nothing checks that those pages render.
+- **The staleness banner.** Needs a cache hit served while offline; the
+  assertion would be about Playwright's offline emulation as much as the app.
+- **Recovery mode's screen.** Reachable only by pushing the account over the
+  thresholds, which would wreck the fixture for every other spec.
+- **Push delivery.** Needs a real push service.
+
+### Consequences
+
+The overseer gap is the one worth closing next, and closing it means seeding a
+relationship in `auth.setup.ts`.
+
+## 040 — Revoking the overseer does not clear active consequences
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+`revokeRelationship` touches the relationship and nothing else. Active
+consequences run until discharged or expired; earned rewards stay earned. A test
+asserts the function writes to no model but `RelationshipModel`.
+
+### Why
+
+Revoking is about who configures the arrangement in **future**. If it cleared
+what was already running, the fastest route out of any consequence would be
+revoke, wait, re-invite — the dismiss button the discharge rules exist to
+refuse, wearing a different hat.
+
+It is not a permanent state either. Consequences still end on their own terms:
+discharged by the work being put right, or expired at their window, which is at
+most seven days. So revocation does not trap anyone in a consequence; it simply
+cannot shorten one.
+
+Rewards survive for the mirror-image reason: something earned was earned by the
+record, and the overseer leaving does not unmake it.
+
+### Consequences
+
+- The primary can always end the arrangement, and still owes the week they are
+  in.
+- A comment in `revokeRelationship` says so, because the tidy-up instinct
+  ("clean up their stakes too") is exactly what would break it.
+
+## 041 — Consequences do not stack, and the index is what says so
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+One active consequence per owner, enforced by a unique partial index on
+`(ownerId)` where `status: 'active'`. A second trigger while one is active
+appends `CONSEQUENCE_SUPPRESSED` and is dropped — it extends nothing and queues
+nothing.
+
+### Why
+
+Two stacked consequences are not twice the motivation. They are the point at
+which the arrangement stops feeling survivable, and an arrangement that stops
+feeling survivable gets abandoned rather than satisfied. This is the rule that
+stops a bad week compounding into an unrecoverable state.
+
+An index rather than a check-then-write for the usual reason: two concurrent
+page loads can both observe no active consequence at the same instant. The
+in-memory check in `evaluateStakes` handles the ordinary case and keeps the
+decision list honest; the index is what makes it true.
+
+Suppression is recorded rather than discarded because it says something worth
+knowing — the week was bad enough to fire twice.
+
+### Consequences
+
+- Evaluation orders discharge and expiry BEFORE activation, so a good day can
+  end today's consequence and a bad one start tomorrow's without ever stacking.
+- The maximum window is one constant, `MAX_CONSEQUENCE_WINDOW_DAYS = 7`,
+  enforced in the zod schema rather than in the form.
+
+## 042 — Vacation excludes days rather than forgiving them
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+While vacation is on: nothing is evaluated, no consequence activates, no
+threshold is tested. Days inside a vacation period leave the adherence
+**denominator** — not counted as kept, not counted as missed. Periods are stored
+as documents, and `VACATION_STARTED` / `VACATION_ENDED` are appended. It cannot
+discharge an active consequence, and it does not stop one expiring. The primary
+controls it; `vacation:write` is absent from the overseer's capabilities.
+
+### Why
+
+Counting paused days as kept would flatter the record. Counting them as missed
+would make the pressure valve cost something, and a valve that costs something
+is one nobody pulls — at which point "I am behind, so I will abandon the whole
+thing" is back, which is the failure vacation mode exists to prevent.
+
+Stored as periods rather than a flag because the exclusion has to be auditable
+after the fact: last month's adherence has to know which days in it were
+paused, and a boolean can only say whether vacation is on now.
+
+It cannot discharge anything, or it would be the dismiss button by another
+name. It does not stop expiry, because pausing expectations must not extend a
+penalty already running.
+
+The overseer cannot veto it. A vacation someone else can refuse is one you route
+around by not opening the app, and an accountability tool nobody opens reports
+nothing at all.
+
+### Consequences
+
+- Adherence carries `vacationDays` and `sparse`, and both are shown.
+- Below five counting days no trigger fires at all: one kept day out of one is
+  a rate of 1.0, and real-world stakes should not turn on a single Tuesday.
+
+## 043 — The stakes authorization rule is positional
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+Every route under `src/app/api/stakes/` is the overseer's. A scanner walks that
+directory and fails if any route there requires a capability the primary holds,
+or has no guard at all. There is deliberately no `GET /api/stakes`.
+
+The primary's two stake actions live elsewhere: `api/rewards/claim` and
+`api/vacation`.
+
+### Why
+
+The matrix stays the source of truth — the test asks `can()` and fails when a
+route disagrees with it, rather than restating who may do what. If the two could
+disagree, the matrix would be documentation of the rule rather than the rule.
+
+Positional, so a route added there next month without a guard fails without
+anybody remembering to extend a list. A hand-maintained list has that failure
+mode by construction.
+
+The shared read is absent for the same reason. A `GET` both roles need would be
+guarded by `consequence:read`, which the primary holds — and that one exception
+would turn "every route here" into "every route here except one", which is the
+shape that grows. The overseer's page calls `readState` directly; the primary's
+status reaches them through `/api/today`.
+
+### Consequences
+
+- The primary has no route that dismisses, expires or reschedules a
+  consequence, and a scan fails on one appearing.
+- `editStakeSchema` takes name and description only — status is derived, and a
+  field accepted and ignored is the other way this gets defeated.
+- Reading never evaluates: an overseer opening their page cannot activate a
+  consequence. Evaluation belongs to the primary's own Today read.
