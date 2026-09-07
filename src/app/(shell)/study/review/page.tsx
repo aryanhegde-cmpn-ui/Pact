@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { ReviewList } from '@/components/study/review-list';
 import { currentActor } from '@/lib/api/guard';
+import { gateDuringRecovery } from '@/lib/commitments/recovery-gate';
 import { listFlagged } from '@/lib/curriculum/service';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,15 @@ export const metadata = { title: 'Review targets' };
 export default async function ReviewPage(): Promise<React.JSX.Element> {
   const actor = await currentActor();
   if (!actor) redirect('/');
+
+  /**
+   * Recovery mode takes this surface away, not just the dashboard.
+   *
+   * A planner is a whole surface for deciding what to do next, offered to
+   * someone who already has more than they can keep. Reading it while behind
+   * is how a backlog becomes a bigger plan.
+   */
+  await gateDuringRecovery(actor.ownerId);
 
   const flagged = await listFlagged(actor.ownerId);
 

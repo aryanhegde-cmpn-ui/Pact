@@ -6,6 +6,7 @@ import { MobileTabBar } from '@/components/nav/mobile-tab-bar';
 import { SidebarNav } from '@/components/nav/sidebar-nav';
 import { auth } from '@/lib/auth';
 import { countNeedsReckoning } from '@/lib/commitments/service';
+import { recoveryForRequest } from '@/lib/commitments/recovery-gate';
 
 /**
  * The interactive app shell: sidebar from 1024px up, bottom tab bar below it.
@@ -28,12 +29,23 @@ export default async function ShellLayout({
 
   const displayName = session.user.name ?? session.user.email ?? 'Signed in';
 
+  const ownerId = session.user.ownerId ?? session.user.id;
+
   // Derived on read like every other behavioural number here.
-  const outstanding = await countNeedsReckoning(session.user.ownerId ?? session.user.id);
+  const outstanding = await countNeedsReckoning(ownerId);
+
+  /**
+   * The nav hides what recovery mode has taken away.
+   *
+   * Shared with the page through `cache`, so the layout and the page it wraps
+   * pay for one aggregation between them rather than one each. The pages
+   * redirect anyway -- this is so the tabs do not offer a door that is locked.
+   */
+  const { active: inRecovery } = await recoveryForRequest(ownerId);
 
   return (
     <div className="flex min-h-dvh pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-      <SidebarNav />
+      <SidebarNav inRecovery={inRecovery} />
 
       {/* Bottom padding on mobile keeps content clear of the fixed tab bar. */}
       <main className="min-w-0 flex-1 px-md pt-lg pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-lg lg:px-xl lg:pb-xl xl:px-2xl">
@@ -43,7 +55,7 @@ export default async function ShellLayout({
         </div>
       </main>
 
-      <MobileTabBar />
+      <MobileTabBar inRecovery={inRecovery} />
     </div>
   );
 }

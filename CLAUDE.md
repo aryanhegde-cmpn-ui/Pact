@@ -567,6 +567,11 @@ overdue list the reflex is to reschedule all of it, producing a bigger plan
 than the one already not being kept. Three dispositions make that impossible —
 only one slot reschedules.
 
+It takes the **planning surfaces** with it: `/study`, `/postponements`,
+`/tomorrow` and `/week` all redirect to the dashboard, and the nav stops
+offering them. `/settings` stays reachable — locking someone out of settings
+during a restrictive state is how they get stuck in it.
+
 **Whether it is on is derived from the counts, every read.** There is no
 `inRecovery` column. The _episode_ is a `RecoverySession` document, with a
 unique partial index so concurrent reads open exactly one, and
@@ -828,6 +833,9 @@ src/lib/env.ts         environment schema + parsed values, server-only
 src/lib/behavior/      pure analysis functions, no I/O, clock passed in
 src/lib/notifications/ queue, delivery, dispatch, push, settings, inbox
 src/lib/focus/         focus sessions: the clock, the lock, the three exits
+src/lib/today/         the day, the greeting, the week, progress
+src/components/today/  the ring, the next action, the block ledger
+e2e/                   Playwright: the 390px checks
 src/lib/curriculum/   import, suggestion, rhythm, evening rule, re-plan
 data/                 the study workbook -- the authority on the plan
 src/lib/db/migrations/ one-off index migrations
@@ -856,7 +864,112 @@ nothing on purpose. Every colour comes from the five tokens. If a component
 seems to need a sixth colour, it probably wants opacity (`text-text/60`) or it
 wants a different design.
 
-Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
+Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`). **Mobile first** —
+commitments get created and completed on a phone, and the desktop layout is the
+secondary case. Every surface is checked at 390px by
+[`e2e/today.spec.ts`](e2e/today.spec.ts).
+
+### There is no colour for "done"
+
+`signal` means **"this needs you"** and appears at most twice on a screen.
+Every other state is a **value** distinction on the one foreground:
+
+| Token     | Means                                      |
+| --------- | ------------------------------------------ |
+| `text`    | done, present, real                        |
+| `text/60` | a secondary fact                           |
+| `text/40` | metadata: times, counts, labels            |
+| `text/25` | not yet, absent, the empty half of a gauge |
+| `edge`    | structure: rules, tracks, inactive strokes |
+| `signal`  | needs you                                  |
+
+The obvious move when "done" needs a colour is a green. That green is a reward
+for completing, and a reward for completing is the one reward this app is
+allowed to withhold.
+
+### Two typefaces: text, and figures
+
+The system sans sets text. The system mono is the **figure face** and carries
+every measured number — times, durations, counts, percentages — through the
+`.figures` class, with `tabular-nums` and `slashed-zero`. A column of times
+that aligns, and a duration that reads as a quantity rather than as words, is
+most of what separates an instrument from a list. No webfont: nothing to fetch,
+nothing to shift, nothing to fail offline.
+
+`display` (44px) exists for the ring's numerator and nothing else.
+
+### The references are instrument panels and printed ledgers
+
+Not SaaS dashboards. Hierarchy is carried by size and weight. Rows are
+separated by hairline rules, not by identical rounded cards with soft shadows.
+`surface` is used for the one or two raised planes on a page, not for every
+list item.
+
+**Avoid:** gradient decoration, all-caps eyebrow labels above every section,
+emoji as structural chrome. A section label is lowercase and small, or it is
+not there. There is a test that fails on emoji in any component and on
+`uppercase` anywhere on the Today surfaces.
+
+## Today
+
+Order down the page, and the order IS the design:
+
+1. **Recovery mode**, if active — replaces everything below.
+2. **Needs reckoning**, if any. Above all other work, always.
+3. **The next action** — the largest element on the page. One commitment, its
+   outcome, its estimate, and a Start button that opens focus mode.
+4. **The three blocks and the ring.**
+5. **Other commitments due today**, listed plainly. Not in the ring.
+6. **The overdue count**, as a link. Never a list — that lives on its own page
+   and is paged.
+7. **Phase drift**, one line.
+
+Two registers on one page. The greeting is 28px with room around it; the ledger
+below is 14px on hairline rules with tabular figures. **Warmth comes from the
+copy and the typography, never from softening what the numbers say.**
+
+The visual boldness is spent on exactly two things: the next action, and the
+ring.
+
+### The ring is three segments
+
+One arc per block, filled or hollow, with a gap between them. **The denominator
+is exactly three.** It measures adherence to the plan, and the plan is three
+blocks — other commitments are real work and are listed as such, but a
+denominator of "everything due today" would make a day with nine errands read
+as nine-elevenths of a study plan. A continuous arc is also what every fitness
+app has; three segments read as an instrument, and partial fill is not a state
+that exists.
+
+### The greeting is a rotation, not a shuffle
+
+All copy lives in [`src/lib/today/greeting.ts`](src/lib/today/greeting.ts) —
+add a line there and nothing else changes. Selected from the date, the time
+bucket and the block state, stepping through each pool in order so no line
+repeats within `pool.length` days.
+
+Never random. A line that changes on every render is a variable reward
+schedule: it teaches the user to reload the page, which is engagement with the
+tool rather than execution of the work.
+
+The buckets are the workbook's boundaries — 07:00, 10:00, 11:00, 19:00, 22:00,
+23:30 — so nobody is greeted mid-block as though they had the evening. The late
+bucket ignores block state on purpose: "well done" at 11:45pm would be the warm
+surface endorsing the thing the plan says not to do.
+
+### Tabs
+
+**Today, Tomorrow, Week, Study, Progress.** Postponements and Settings are
+reachable but not in the primary bar.
+
+Blocks 1, 2 and 3 are sections **within** Study, not tabs. The earlier
+DSA / Learning / Frontend split predates the block model and describes a
+different product: those were three subjects, these are three windows in one
+morning against one curriculum.
+
+**Progress is history and none of it appears on Today.** Adherence is a rolling
+rate over 21 days; the consecutive run appears once, small, named `currentRun`,
+and gates nothing. A test fails on the word "streak" in any component.
 
 ## Current state
 
@@ -874,8 +987,9 @@ Series, per-day topic suggestion with override, phase drift, and an explicit
 re-plan.
 
 Working, additionally: server-clocked focus sessions with a server-enforced
-lock, block sessions that advance topic progress, and recovery mode replacing
-the dashboard when the backlog passes its thresholds.
+lock, block sessions that advance topic progress, recovery mode replacing the
+dashboard and gating the planning surfaces, and the Today / Tomorrow / Week /
+Study / Progress surfaces with the greeting and the block ring.
 
 Not built yet: rewards and consequences (the permission surface is ready for
 them), the video player, and the behaviour engine.

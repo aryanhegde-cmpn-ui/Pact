@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { navItems } from './nav-items';
+import { navItems, secondaryNavItems, visibleNavItems } from './nav-items';
 
-export function SidebarNav() {
+export function SidebarNav({ inRecovery = false }: { inRecovery?: boolean }) {
   const pathname = usePathname();
+  const primary = visibleNavItems(navItems, inRecovery);
+  const secondary = visibleNavItems(secondaryNavItems, inRecovery);
 
   return (
     <aside className="border-edge bg-surface hidden w-64 shrink-0 border-r lg:flex lg:flex-col">
@@ -18,7 +20,7 @@ export function SidebarNav() {
       </div>
 
       <nav aria-label="Primary" className="flex flex-col gap-2xs p-sm">
-        {navItems.map((item) => {
+        {primary.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
@@ -29,6 +31,29 @@ export function SidebarNav() {
               className={[
                 'flex items-center gap-sm rounded-md px-sm py-xs text-sm transition-colors',
                 active ? 'bg-edge text-text' : 'text-text/60 hover:bg-edge/50 hover:text-text',
+              ].join(' ')}
+            >
+              <NavIcon path={item.icon} />
+              {item.label}
+            </Link>
+          );
+        })}
+
+        {/* Reachable, not a daily destination. Separated by a rule rather than
+            a heading -- one more label here would be one more thing to read. */}
+        <div className="border-edge my-sm border-t" />
+
+        {secondary.map((item) => {
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? 'page' : undefined}
+              className={[
+                'flex items-center gap-sm rounded-md px-sm py-xs text-sm transition-colors',
+                active ? 'bg-edge text-text' : 'text-text/50 hover:bg-edge/50 hover:text-text',
               ].join(' ')}
             >
               <NavIcon path={item.icon} />

@@ -32,6 +32,7 @@
   --text-xl: var(--pact-text-xl);
   --text-2xl: var(--pact-text-2xl);
   --text-3xl: var(--pact-text-3xl);
+  --text-display: var(--pact-text-display);
 
   --leading-tight: var(--pact-leading-tight);
   --leading-normal: var(--pact-leading-normal);
@@ -66,5 +67,28 @@
   :focus-visible {
     outline: 2px solid var(--pact-signal);
     outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /*
+   * Measured numbers.
+   *
+   * `tabular-nums` so a column of times or durations lines up and a changing
+   * timer does not shift its own layout. `slashed-zero` because at a glance,
+   * on an instrument, 0 and O should not be a question.
+   */
+  .figures {
+    font-family: var(--pact-font-mono);
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  /* The display figure. Only the ring's numerator uses this. */
+  .figures-display {
+    font-family: var(--pact-font-mono);
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-size: var(--pact-text-display);
+    line-height: 1;
+    letter-spacing: var(--pact-tracking-display);
   }
 }

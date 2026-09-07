@@ -1163,3 +1163,173 @@ direction that makes the ratio less flattering, not more.
   reflexively, and then it is noise rather than a decision point. Extending
   requires a written justification, because a budget that is always extended is
   the same as not having one.
+
+## 032 — Five colours, and "done" is not one of them
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+The palette stays at five. `signal` is reserved for "this needs you" and
+appears at most twice on a screen. Every other state is a **value** distinction
+on the one foreground: `text` for done or present, `text/60` for a secondary
+fact, `text/40` for metadata, `text/25` for not-yet, `edge` for structure.
+
+A second typeface joins, from the stack already there: the system mono is
+promoted to the **figure face** and carries every measured number — times,
+durations, counts, percentages — with `tabular-nums` and `slashed-zero`. One
+new type step, `display` at 44px, used by the ring's numerator and nothing
+else.
+
+### Why
+
+The obvious move when "done" needs a colour is to add a green. That green is a
+reward for completing, and a reward for completing is the one reward this app
+is allowed to withhold — the anti-feature list exists to stop exactly that
+arriving as a nice touch. A filled segment in the foreground colour says
+"done" without saying "well done".
+
+The figure face is where the printed-ledger reference actually lands. A column
+of times that aligns, and a duration that reads as a quantity rather than as
+words, is most of what separates an instrument from a list. It costs no network
+request, so it cannot shift layout or fail offline — which matters for a PWA
+opened on a phone before seven in the morning.
+
+### Consequences
+
+- A component that seems to need a sixth colour wants opacity or a different
+  design. There is no hex outside `tokens.css`.
+- `src/lib/ui-invariants.test.ts` fails on a reward hue in the ring, on the
+  word "streak" anywhere in a component, and on any emoji.
+
+## 033 — The ring is three segments, not a progress arc
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+One arc per block, each filled or hollow, with a visible gap between them. The
+denominator is exactly three, always. Other commitments due today are listed
+plainly and never enter it.
+
+### Why
+
+A continuous arc invites a denominator of "everything due today", which would
+make a day with nine errands read as a day with nine-elevenths of a study plan.
+The ring measures adherence to the **plan**, and the plan is three blocks.
+
+It is also the generic choice — every fitness app has one. Three discrete
+segments read as an instrument with three positions, where partial fill is not
+a state that exists, because a block is done or it is not.
+
+### Consequences
+
+- `buildDay` returns the blocks as their own array, so the denominator cannot
+  be computed from a mixed list by accident. A test asserts it stays three with
+  nine other commitments present.
+- An abandoned block is not a kept block. The ring counts `done` only.
+
+## 034 — The greeting is a rotation, not a shuffle
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+Selected from the date, the time bucket and the block state. Consecutive days
+step through a pool in order, offset per pool by a hash of its own key, so no
+line repeats within `pool.length` days. All copy lives in one module.
+
+### Why
+
+A line that changes on every render is a variable reward schedule: it teaches
+the user to reload the page, which is engagement with the tool rather than
+execution of the work — the same failure the anti-feature list names, arriving
+through the copy instead of through a badge.
+
+Random selection also repeats far sooner than it feels like it should: a pool
+of four picked at random shows the same line twice within three days about half
+the time, and a greeting already read this week is not read at all.
+
+The buckets are the workbook's boundaries — 07:00, 10:00, 11:00, 19:00, 22:00,
+23:30 — not round hours, so nobody is greeted mid-block as though they had the
+evening. The late bucket ignores block state on purpose: "well done" at 11:45pm
+would be the warm surface endorsing the thing the plan says not to do.
+
+### Consequences
+
+- Some pools are shorter than seven lines and cannot avoid a weekly repeat.
+  `poolsShorterThanAWeek()` names them and a test asserts the list, so it is a
+  decision rather than an oversight. "All three before ten" is the only true
+  thing to say about that state.
+- Adding a line means editing one array. No component holds a string.
+
+## 035 — Recovery mode takes the planning surfaces too
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+While recovery is active, `/study`, `/postponements`, `/tomorrow` and `/week`
+redirect to the dashboard, and the nav stops offering them. `/settings` stays
+reachable.
+
+### Why
+
+The point of recovery mode is to remove the places where a backlog turns into a
+bigger plan. The dashboard was one of them; the study planner is the other, and
+arguably the worse one — it is a whole surface for deciding what to do next,
+offered to someone who already has thirty-four things they said they would do.
+
+Settings is the exception because a restrictive state with no escape hatch is a
+trap. Locked out of settings, there is no way to change quiet hours, no way to
+end an overseer arrangement, and no way out except finishing work already not
+being finished.
+
+A redirect rather than an explanation page: an explanation on `/study` is still
+a page you can sit on, and the point is that there is one thing to do.
+
+### Consequences
+
+- `recoveryForRequest` is wrapped in React `cache`, so the layout deciding
+  which tabs to show and the page deciding whether to render share one
+  aggregation instead of running two.
+- The gated list is exported and asserted, so widening it is a visible change.
+
+## 036 — "Answered, moved, missed again" is its own group
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+The postponement view leads with commitments that have missed more than one
+distinct deadline **and** answered for at least one of them. They appear there
+only, not also in the moved-once/twice/chronic groups.
+
+### Why
+
+A different state from "missed once and never answered", and a worse one. An
+unanswered miss is a question outstanding. This is a question that was
+answered, acted on with a new date chosen deliberately, and then missed anyway
+— which says the answer did not hold and the new date was optimism.
+
+In a flat overdue list it is indistinguishable from any other late row, which
+is precisely how the pattern stays invisible: every individual reschedule
+looked reasonable at the time. On the real seeded data it is 43 rows that were
+previously scattered across three groups by change count.
+
+Counted on `(entityId, ts)` because `ts` is the missed deadline for both
+`DEADLINE_MISSED` and `RECKONING_SUBMITTED`. Keying on the entity alone would
+collapse a commitment missed in September and again in October into one miss
+and hide exactly the pattern being looked for.
+
+### Consequences
+
+- Two extra fields on the row, `deadlinesMissed` and `deadlinesReckoned`, both
+  derived on read.
+- One extra query over the event log, bounded to entities that already have a
+  deadline change.
