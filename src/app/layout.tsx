@@ -52,7 +52,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-base text-text min-h-dvh antialiased">
+      <body className="bg-ground text-text min-h-dvh antialiased">
         <QueryProvider>{children}</QueryProvider>
         <ServiceWorkerRegistrar />
       </body>

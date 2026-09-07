@@ -553,6 +553,83 @@ that nags gets dismissed reflexively, and then it is noise rather than a
 decision point. Extending requires a written justification, because a budget
 that is always extended is the same as not having one.
 
+## Rewards and consequences
+
+Real-world stakes, **configured only by the Overseer**. Not in-app rewards: the
+anti-feature list still bans XP, levels, badges and confetti, because those are
+internal currency with no external referent. This is the opposite — a second
+person holds the outcome, and the app's only job is to be an honest witness.
+
+**The authorization rule is positional.** Every route under
+[`src/app/api/stakes/`](src/app/api/stakes/) is the overseer's, and a scanner in
+[`src/lib/stakes-authorization.test.ts`](src/lib/stakes-authorization.test.ts)
+walks that directory and fails if any route there requires a capability the
+primary holds. The matrix stays the source of truth: the test asks `can()`
+rather than restating the rule.
+
+There is deliberately **no `GET /api/stakes`** — a read both roles need would be
+guarded by `consequence:read`, which the primary holds, and that one exception
+would turn "every route here" into "every route here except one". The primary's
+own two actions live outside that directory: `api/rewards/claim` and
+`api/vacation`.
+
+The primary cannot create, edit, delete, dismiss, expire or reschedule a
+consequence. Not through a route, not through a field accepted and ignored, not
+through vacation mode.
+
+### Bounded, and they do not stack
+
+`MAX_CONSEQUENCE_WINDOW_DAYS = 7` — **one constant, enforced in the zod schema**,
+not in the form. A cap that only exists in the UI is a cap the API does not
+have.
+
+**One active consequence at a time**, enforced by a unique partial index. A
+second trigger while one is active appends `CONSEQUENCE_SUPPRESSED` and is
+dropped — it extends nothing and queues nothing. Two stacked consequences are
+not twice the motivation; they are the point at which the arrangement stops
+feeling survivable, and that gets abandoned rather than satisfied.
+
+### Discharge is doing the work
+
+A consequence carries a discharge condition tied to what triggered it, and
+satisfying it discharges automatically. **There is no dismiss branch and there
+must not be** — a consequence with a dismiss button is a notification, and a
+notification is what you learn to close without reading. It also expires at its
+window regardless, so an undischarged consequence is never permanent.
+
+Triggers evaluate against the **rolling adherence rate**, never a consecutive
+count. Below five counting days nothing fires at all: one kept day out of one is
+a rate of 1.0, and real stakes should not turn on a single Tuesday.
+
+Evaluation runs on the **primary's** Today read. Reading never evaluates
+elsewhere — an overseer opening their page must not be able to activate
+anything.
+
+### Vacation mode
+
+One toggle, **the primary's**. `vacation:write` is absent from the overseer's
+capabilities: a vacation someone else can veto is one you route around by not
+opening the app.
+
+While on, nothing is evaluated. Blocks still materialise and can still be
+completed — it pauses expectations, not the app.
+
+**Days on vacation leave the adherence denominator.** Not kept, not missed.
+Counting them as kept flatters the record; counting them as missed makes the
+pressure valve cost something, and a valve that costs something is one nobody
+pulls. Stored as periods with `VACATION_STARTED` / `VACATION_ENDED`, so the
+exclusion is auditable rather than invisible.
+
+It **cannot discharge** an active consequence — that would be the dismiss button
+by another name — and it does not stop one expiring.
+
+### Revocation
+
+Revoking the overseer relationship leaves active consequences and earned
+rewards alone. Revoking is about who configures the arrangement in future; if it
+cleared what was running, the fastest way out of any consequence would be
+revoke, wait, re-invite. See docs/decisions.md, 040.
+
 ## Recovery mode
 
 Above **10 unanswered misses or 20 overdue commitments**, `/dashboard` is
@@ -833,6 +910,8 @@ src/lib/env.ts         environment schema + parsed values, server-only
 src/lib/behavior/      pure analysis functions, no I/O, clock passed in
 src/lib/notifications/ queue, delivery, dispatch, push, settings, inbox
 src/lib/focus/         focus sessions: the clock, the lock, the three exits
+src/lib/stakes/        rewards, consequences, vacation
+src/app/api/stakes/    OVERSEER ONLY -- enforced positionally by a scanner
 src/lib/today/         the day, the greeting, the week, progress
 src/components/today/  the ring, the next action, the block ledger
 e2e/                   Playwright: the 390px checks
@@ -991,8 +1070,11 @@ lock, block sessions that advance topic progress, recovery mode replacing the
 dashboard and gating the planning surfaces, and the Today / Tomorrow / Week /
 Study / Progress surfaces with the greeting and the block ring.
 
-Not built yet: rewards and consequences (the permission surface is ready for
-them), the video player, and the behaviour engine.
+Working, additionally: overseer-configured rewards and consequences with
+bounded non-stacking windows, discharge by doing the work, and primary-
+controlled vacation mode.
+
+Not built yet: the video player and the behaviour engine.
 
 The product is specified in [`docs/product.md`](docs/product.md), which is
 authoritative where this file disagrees. Decisions and their reasoning are in

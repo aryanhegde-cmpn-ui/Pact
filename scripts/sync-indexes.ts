@@ -17,10 +17,13 @@ import mongoose from 'mongoose';
 import { BlockModel } from '@/lib/db/models/block';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { CurriculumTopicModel } from '@/lib/db/models/curriculum-topic';
+import { ConsequenceModel } from '@/lib/db/models/consequence';
 import { FocusSessionModel } from '@/lib/db/models/focus-session';
 import { InterviewPrepItemModel } from '@/lib/db/models/interview-prep-item';
 import { PhaseModel } from '@/lib/db/models/phase';
 import { RecoverySessionModel } from '@/lib/db/models/recovery-session';
+import { RewardModel } from '@/lib/db/models/reward';
+import { VacationModel } from '@/lib/db/models/vacation';
 import { ResourceModel } from '@/lib/db/models/resource';
 import { TopicProgressModel } from '@/lib/db/models/topic-progress';
 import { EventModel } from '@/lib/db/models/event';
@@ -50,6 +53,10 @@ const MODELS = [
   ['interviewprepitems', InterviewPrepItemModel],
   ['recoverysessions', RecoverySessionModel],
   ['focussessions', FocusSessionModel],
+  // Stakes.
+  ['rewards', RewardModel],
+  ['consequences', ConsequenceModel],
+  ['vacations', VacationModel],
 ] as const;
 
 async function main(): Promise<void> {

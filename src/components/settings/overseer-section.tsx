@@ -118,7 +118,7 @@ export function OverseerSection({
                           setInvite(null);
                         });
                     }}
-                    className="bg-signal min-h-11 rounded px-md text-sm font-medium text-on-signal"
+                    className="bg-signal min-h-11 rounded px-md text-sm font-medium text-ground"
                   >
                     Yes, revoke
                   </button>

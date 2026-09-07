@@ -54,7 +54,7 @@ export function NextAction({
               ? `/dashboard?reckon=${next.commitmentId}`
               : `/focus/${next.commitmentId}`
           }
-          className="border-signal text-signal hover:bg-signal hover:text-on-signal mt-lg flex min-h-14 w-full items-center justify-center rounded-md border text-base font-medium transition-colors sm:w-auto sm:px-2xl"
+          className="border-signal text-signal hover:bg-signal hover:text-ground mt-lg flex min-h-14 w-full items-center justify-center rounded-md border text-base font-medium transition-colors sm:w-auto sm:px-2xl"
         >
           {next.needsReckoning ? 'Answer for it' : 'Start'}
         </Link>

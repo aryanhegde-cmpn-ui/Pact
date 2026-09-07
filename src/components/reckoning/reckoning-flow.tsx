@@ -107,7 +107,7 @@ export function ReckoningFlow({
               type="button"
               disabled={busy}
               onClick={() => setStep(2)}
-              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-on-signal disabled:opacity-50"
+              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-ground disabled:opacity-50"
             >
               No
             </button>
@@ -189,7 +189,7 @@ export function ReckoningFlow({
               rows={2}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              className="border-edge bg-base text-text w-full rounded border px-sm py-xs outline-none focus:border-signal"
+              className="border-edge bg-ground text-text w-full rounded border px-sm py-xs outline-none focus:border-signal"
             />
           </label>
 
@@ -206,7 +206,7 @@ export function ReckoningFlow({
                   recovery: buildRecovery(action, detail, commitment),
                 });
               }}
-              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-on-signal disabled:opacity-50"
+              className="bg-signal min-h-11 flex-1 rounded px-md text-sm font-medium text-ground disabled:opacity-50"
             >
               {busy ? 'Recording…' : 'Record it'}
             </button>
@@ -233,7 +233,7 @@ export function ReckoningFlow({
 }
 
 const INPUT =
-  'border-edge bg-base text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
+  'border-edge bg-ground text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
 
 /** The detail each action needs to actually take effect. */
 function RecoveryFields({

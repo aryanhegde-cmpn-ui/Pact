@@ -133,7 +133,7 @@ export function StartSession({
             max={240}
             value={budget}
             onChange={(event) => setBudget(Number(event.target.value))}
-            className="border-edge bg-base min-h-11 w-28 rounded border px-sm text-sm"
+            className="border-edge bg-ground min-h-11 w-28 rounded border px-sm text-sm"
           />
         </label>
       ) : null}

@@ -134,7 +134,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
       <button
         type="submit"
         disabled={submitting}
-        className="bg-signal text-on-signal mt-sm min-h-14 rounded px-md font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="bg-signal text-ground mt-sm min-h-14 rounded px-md font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
       >
         {submitting ? 'Signing in…' : 'Sign in'}
       </button>

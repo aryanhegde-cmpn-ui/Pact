@@ -51,7 +51,7 @@ export function RedeemInviteForm({ initialToken }: { initialToken: string }): Re
         <button
           type="button"
           onClick={() => router.push('/')}
-          className="bg-signal mt-md min-h-11 w-full rounded px-md text-sm font-medium text-on-signal"
+          className="bg-signal mt-md min-h-11 w-full rounded px-md text-sm font-medium text-ground"
         >
           Go to sign in
         </button>
@@ -99,7 +99,7 @@ export function RedeemInviteForm({ initialToken }: { initialToken: string }): Re
       <button
         type="submit"
         disabled={busy}
-        className="bg-signal min-h-11 rounded px-md font-medium text-on-signal disabled:opacity-50"
+        className="bg-signal min-h-11 rounded px-md font-medium text-ground disabled:opacity-50"
       >
         {busy ? 'Creating…' : 'Create account'}
       </button>

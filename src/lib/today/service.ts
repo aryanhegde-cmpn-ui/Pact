@@ -8,6 +8,7 @@ import { getEnv } from '@/lib/env';
 import type { BlockId, PriorityBand, TopicStatus } from '@/lib/schemas/curriculum';
 import { slantFor } from '@/lib/curriculum/rhythm';
 import { suggestTopic, type RankedTopic } from '@/lib/curriculum/suggest';
+import { evaluateAndGetStakes, type StakesState } from '@/lib/stakes/service';
 import { addDays, toDateKey, type DateKey } from '@/lib/time';
 
 import { dateLine, greetingFor, type Greeting } from './greeting';
@@ -67,6 +68,15 @@ export interface TodayView {
   overdue: { total: number; needsReckoning: number };
   phase: { number: number; outcome: string } | null;
   drift: Drift | null;
+  /**
+   * Rewards and consequences, evaluated on this read.
+   *
+   * Evaluated here rather than on a schedule: Vercel Hobby has one daily cron,
+   * and a stake that fires only when a scheduler happens to run is a stake
+   * that fires late. Applying before rendering is what makes the status line
+   * true at the moment it is read rather than one page load behind.
+   */
+  stakes: StakesState;
   /** True before any workbook has been imported. */
   noCurriculum: boolean;
   /** Set on Tomorrow when a block for that day is already finished. */
@@ -157,9 +167,14 @@ export async function buildDay(
 
   const needsReckoning = commitments.filter((row) => row.needsReckoning);
 
-  const [overdue, phaseRows] = await Promise.all([
+  const [overdue, phaseRows, stakes] = await Promise.all([
     overdueCounts(ownerId, now),
     PhaseModel.find({ ownerId }).sort({ number: 1 }).lean(),
+    /**
+     * Only for today. Evaluating stakes while rendering TOMORROW would
+     * activate a consequence because someone looked ahead.
+     */
+    isToday ? evaluateAndGetStakes(ownerId, now) : readOnlyStakes(ownerId, now),
   ]);
 
   const phase = phaseOn(phaseRows, date);
@@ -197,6 +212,7 @@ export async function buildDay(
             date,
           )
         : null,
+    stakes,
     noCurriculum: context === null,
     /**
      * Recognised, as a message, never as a badge.
@@ -207,6 +223,13 @@ export async function buildDay(
      */
     aheadOfSchedule: !isToday && date > today && blocksDone > 0,
   };
+}
+
+/** Tomorrow and the week read the stakes without evaluating them. */
+async function readOnlyStakes(ownerId: string, now: Date): Promise<StakesState> {
+  const { readState } = await import('@/lib/stakes/service');
+
+  return readState(ownerId, now);
 }
 
 function minutesOfDay(now: Date, timeZone: string): number {

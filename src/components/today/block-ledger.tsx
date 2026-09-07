@@ -97,7 +97,7 @@ export function BlockLedger({
                       );
                       setOpen(null);
                     }}
-                    className="border-edge bg-base min-h-11 w-full rounded border px-sm text-sm"
+                    className="border-edge bg-ground min-h-11 w-full rounded border px-sm text-sm"
                   >
                     <option value="">Nothing in particular</option>
                     {block.alternatives.map((option) => (

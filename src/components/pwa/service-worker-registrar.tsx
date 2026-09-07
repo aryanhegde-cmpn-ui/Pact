@@ -85,7 +85,7 @@ export function ServiceWorkerRegistrar(): React.JSX.Element | null {
           // The worker takes over, controllerchange fires, the page reloads.
           waiting.postMessage('SKIP_WAITING');
         }}
-        className="bg-signal min-h-11 shrink-0 rounded px-md text-sm font-medium text-on-signal disabled:opacity-50"
+        className="bg-signal min-h-11 shrink-0 rounded px-md text-sm font-medium text-ground disabled:opacity-50"
       >
         {reloading ? 'Reloading…' : 'Reload'}
       </button>

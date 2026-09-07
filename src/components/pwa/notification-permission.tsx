@@ -111,7 +111,7 @@ export function NotificationPermission({
               })
               .finally(() => setAsking(false));
           }}
-          className="bg-signal min-h-11 shrink-0 rounded px-md text-sm font-medium text-on-signal disabled:opacity-50"
+          className="bg-signal min-h-11 shrink-0 rounded px-md text-sm font-medium text-ground disabled:opacity-50"
         >
           {asking ? 'Asking…' : 'Enable'}
         </button>
