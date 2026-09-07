@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatePresence, m } from 'motion/react';
 
+import { useAnnounce } from '@/components/a11y/announcer';
 import { CommitmentRow } from '@/components/commitments/commitment-row';
+import { CreateCommitmentForm } from '@/components/commitments/create-form';
 import { MotionProvider } from '@/components/motion/motion-provider';
 import { useTransition } from '@/components/motion/transitions';
 import { DispatchHealthBanner } from '@/components/pwa/dispatch-health-banner';
@@ -132,6 +134,25 @@ export function Today({
   );
 
   const transition = useTransition('state');
+  const announce = useAnnounce();
+
+  /**
+   * Says what changed, for anyone who cannot see it change.
+   *
+   * The ring filling and the row leaving are the sighted feedback; without
+   * this, completing something is silent and the page simply differs. Compared
+   * against the previous read rather than fired from the click, so it also
+   * covers a block finished in another tab.
+   */
+  const previousDone = useRef(initial.blocksDone);
+  useEffect(() => {
+    if (data.blocksDone === previousDone.current) return;
+
+    if (data.blocksDone > previousDone.current) {
+      announce(`Block complete. ${data.blocksDone} of ${data.blocks.length} blocks kept today.`);
+    }
+    previousDone.current = data.blocksDone;
+  }, [announce, data.blocks.length, data.blocksDone]);
 
   /**
    * Open and done, split here rather than on the server.
@@ -283,6 +304,21 @@ export function Today({
                 </>
               ) : null}
             </section>
+
+            {/*
+              CREATING A COMMITMENT LIVES HERE.
+              -------------------------------------------------------------
+              It had no mount point at all for a release: the form was rendered
+              by the old commitment list, and deleting that list -- correctly,
+              since Today replaced it -- took the only way of creating a
+              commitment with it. Nothing failed, because nothing calls it; the
+              app simply had no path to a manual commitment.
+
+              Last on the page deliberately. Today is for executing what is
+              already committed to, and a create form above the work turns the
+              first screen of the morning into a planning surface.
+            */}
+            <CreateCommitmentForm timeZone={timeZone} onCreated={() => void reload()} />
           </div>
 
           {/* The secondary column. Beside on a laptop, above the ledger on a

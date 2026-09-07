@@ -835,6 +835,128 @@ abandoned are the same movement.
 well as `document.getAnimations()`, because Motion drives `height` on the main
 thread where the browser's own animation list cannot see it.
 
+## Operator tooling
+
+**Every script that touches the database prints its target before acting** —
+cluster host, database name, credentials stripped, and whether that is treated
+as production. `announceTarget()` in
+[`scripts/target.ts`](scripts/target.ts) is the one shape, and
+[`src/lib/script-target.test.ts`](src/lib/script-target.test.ts) fails on a
+script that connects without it, announces after connecting, or interpolates
+`MONGODB_URI` into a log line.
+
+This is not tidiness. Every script reads `MONGODB_URI` from the shell before
+`.env.local`, so an export left over from an earlier command silently
+redirects the next one — and the same email address exists in more than one
+database. `change:password` reported "Password changed" against a scratch
+database while production stayed locked out, and nothing on screen said so.
+
+- **`npm run users:list`** — the target, then every user with role, ownership
+  and last login. No hashes, ever. This is the command that answers "which
+  environment am I actually talking to, and who am I in it", and it names an
+  account missing `usernameLower` or `ownerId`, because "the migration never
+  ran here" is the answer often enough to be worth a line.
+- **`npm run access:reset`** — the recovery path. Prints the target, lists the
+  accounts, **refuses without `--confirm`**, generates a strong password,
+  prints it once, never writes it to a file, and clears that account's lockout
+  rows. It deliberately does _not_ call `assertSafeToMutate`: it is a
+  production recovery tool, and a guard that refused production would defeat
+  it. Attempts against identifiers that resolve to nobody are **reported, not
+  deleted** — an `unknown:` row means the username typed does not exist in that
+  database, which is a different problem from a wrong password and produces the
+  same deliberately generic error on screen.
+- **`npm run env:check`** — which required variables are set here, by name.
+  **Never a value.**
+- **`npm run env:template`** — regenerates `.env.production.example`
+  (committed, no values) and `.env.production.upload` (gitignored, non-secrets
+  filled in, `REPLACE_ME` for the rest) from the Zod schema, so neither can
+  drift from what a deploy will accept.
+
+  It is `.upload` and **not** `.env.production.local` because Next _loads_
+  that filename ahead of `.env.local` for any local production build. A file
+  of placeholders under the obvious name broke local sign-in within a minute of
+  being written.
+
+**Required-ness is read off the schema, never restated.** `ENV_DOCS` in
+[`src/lib/env.ts`](src/lib/env.ts) adds only what a schema cannot carry — a
+sentence, a group, and whether the value is a secret — and a test fails if its
+keys and the schema's keys disagree.
+
+**`/api/health/detail` reports configuration before it checks the session.**
+A missing `AUTH_SECRET` means Auth.js throws before any session exists, so
+requiring one to read the diagnostic makes it useless in exactly the case it
+exists for. A misconfigured deployment answers unauthenticated with variable
+names and booleans — no more than `/api/health` already discloses, and every
+name is in the committed example file.
+
+## The keyboard
+
+**One list, in [`src/lib/shortcuts/bindings.ts`](src/lib/shortcuts/bindings.ts).**
+The `?` sheet renders that array, so a binding cannot exist without being
+documented — a shortcut nobody can discover is a trap rather than a feature.
+
+Sequences for navigation (`g` then `t`, `s`, `p`, `w`, `o`), single keys for
+actions on the current screen (`n`, `1`/`2`/`3`, `s`, `/`, `?`, Escape). A
+prefix rather than a modifier because Ctrl and Cmd combinations belong to the
+browser, and a page that steals them is worse than one with no shortcuts.
+
+Three rules, all about **not** firing:
+
+- **Inert while typing.** Any input, textarea, select or contenteditable takes
+  the key, and so does any modifier combination. Otherwise typing "no" into an
+  outcome field opens a new commitment and then navigates.
+- **Inert during a focus session**, except Escape. The server already refuses
+  `commitment:write` while a session runs; a keyboard offering the same actions
+  would be a faster way to collect a 409, and a shortcut that navigates out of
+  a session is a shortcut out of the work. The shell reads the running session
+  server-side, so a second tab cannot lie about it.
+- **Nothing destructive has a key.** No shortcut abandons a commitment,
+  discharges a consequence or toggles vacation mode. Those are decisions, and
+  two of the three cannot be undone.
+
+Actions reach the page through `data-shortcut` attributes rather than props, so
+the keyboard layer holds no state and a key does nothing when its target is not
+on screen — pressing `2` on the settings page cannot start a block, because
+there is nothing there to activate.
+
+## Accessibility
+
+The more important half, and the one a scan cannot fully hold.
+
+- **A visible focus ring, defined once**, in `globals.css`: 2px solid
+  `signal`, which is 6.09:1 against the ground and 5.58:1 on a surface — well
+  over the 3:1 a non-text indicator needs. **A component may never remove it.**
+  Six inputs had `outline-none` paired with `focus:border-signal`, which reads
+  as a considered replacement and is not one: it drops a 2px ring for a 1px
+  border colour change, on the components where someone is typing, the sign-in
+  form among them.
+- **A skip link, first in the DOM**, and `#content` carries `tabIndex={-1}`.
+  Without the tabindex the browser scrolls to the anchor and leaves focus in
+  the nav, so the next Tab returns to the first nav item and the link achieves
+  nothing.
+- **Focus is trapped in dialogs and restored on close.** Restoration matters as
+  much as the trap: without it focus falls to `document.body` and the next Tab
+  starts from the top of the page. Inline disclosures — the create form, the
+  reckoning flow, the block override — are deliberately **not** trapped. They
+  are not dialogs, the page around them stays meaningful, and trapping focus in
+  one would be a bug rather than a courtesy.
+- **The ring says in words what it draws.** Three arcs are nothing at all to a
+  screen reader: no text, no role, no value. `role="img"` plus an `aria-label`
+  carrying the number _and_ the noun.
+- **One polite live region**, mounted by the shell. The events that earn an
+  animation get a sentence: completing a commitment rewrites the page in place,
+  which is obvious to a sighted user and silent to everyone else. The wording is
+  the accountability wording — "Block complete. 2 of 3 blocks kept today." is a
+  fact; "Well done" would be the reward layer arriving through the speech
+  synthesiser.
+- Reduced motion is handled where the motion is, and still is.
+
+`src/lib/a11y-invariants.test.ts` scans for the rules above;
+`e2e/keyboard.spec.ts` asserts the runtime half — that Tab reaches every
+interactive element on Today, that the ring is visible, that focus is trapped
+and restored, and that the whole shortcut vocabulary typed into a text field
+does nothing but type.
+
 ## Deployment constraints
 
 Deployed on **Vercel Hobby**. This is a hard constraint on architecture:
@@ -1174,6 +1296,10 @@ controlled vacation mode.
 Working, additionally: motion that explains what changed, a responsive pass
 across 390 / 768 / 1024 / 1440 and landscape phone, and e2e coverage of the
 overseer's pages, recovery mode and the staleness banner.
+
+Working, additionally: operator tooling that names its target before acting, a
+password-recovery command, environment reporting by name, keyboard shortcuts
+with a sheet that lists them, and a keyboard-navigable Today.
 
 Not built yet: the video player and the behaviour engine.
 

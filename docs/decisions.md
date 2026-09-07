@@ -1744,3 +1744,197 @@ rather than trusting the resolution order.
 - `max-w-5xl` on the app shell is untouched and correct — the spacing scale
   stops at `3xl`, which is exactly why the collision was invisible in the one
   place anybody looked.
+
+## 048 — Every script names its target before it acts
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+Every script that opens a database connection prints the cluster host, the
+database name and whether that is treated as production, before doing anything.
+One shape, `announceTarget()` in `scripts/target.ts`, enforced by a scanner in
+`src/lib/script-target.test.ts`.
+
+### Why
+
+Production sign-in was broken for a day and one of the two causes was this:
+`change:password` prompted, hashed, wrote, and printed "Password changed for
+aryan.hegde@wizergos.com" — against a scratch database. Nothing on screen said
+which one.
+
+Every script reads `MONGODB_URI` from the shell first and `.env.local` second,
+so an export left over from an earlier command in the same terminal redirects
+the next one silently. The same email address exists in more than one database,
+so the write succeeds. The command was correct, the output was true, and the
+account it changed was the wrong one.
+
+The connection-string guard (decision 021) was already in place and did not
+help: it refuses development commands on production, and this was the opposite
+direction — a production command landing on development.
+
+### Consequences
+
+- `users:list` and `access:reset` exist, and both announce first.
+- A script that connects without announcing fails the suite, as does one that
+  announces after connecting: a failed connection is exactly when the target
+  matters most.
+- No script interpolates `MONGODB_URI` into a log line; `describeUri` strips
+  credentials.
+
+## 049 — There is a way back in that does not need me
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+`npm run access:reset -- --username <name> --confirm` prints the target, lists
+the accounts in that database, refuses without `--confirm`, generates a strong
+password, prints it exactly once, never writes it to a file, and clears that
+account's lockout rows.
+
+It does **not** call `assertSafeToMutate`.
+
+### Why
+
+There is no reset-by-email flow, and decision 007 records why: one user, no
+email provider, a token chain that is not worth its cost. That is a reasonable
+trade only while some other way back in exists, and there was not one. The
+previous route was `change:password`, which prompts interactively, names no
+database, and reports success either way.
+
+The guard is deliberately absent because this is a production recovery tool.
+`assertSafeToMutate` exists to keep development commands off production data;
+applying it here would refuse the one case the command is for. `--confirm`
+after a printed target is the check that fits: it cannot be satisfied by
+accident, and what it confirms is on screen.
+
+Attempts against identifiers that resolve to nobody are reported rather than
+deleted. An `unknown:` row means the username typed does not exist in that
+database — a different problem from a wrong password, producing the same
+deliberately generic error on screen — and deleting them would destroy the only
+evidence of someone else guessing.
+
+### Consequences
+
+- A locked-out operator runs two commands and is back in.
+- The password reaches the terminal and nowhere else. No `--password` flag,
+  because a password passed as an argument is a password in shell history.
+- `e2e/access.spec.ts` resets the OVERSEER fixture and signs in with the result.
+  Resetting the primary's would invalidate `PACT_E2E_PASSWORD` for every later
+  run.
+
+## 050 — Configuration is reported by name, and before the session check
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+`npm run env:check`, `/api/health/detail` and the generated
+`.env.production.example` all derive from the Zod schema in `src/lib/env.ts`.
+They report **names and booleans only**, never values. `/api/health/detail`
+answers unauthenticated when a required variable is missing.
+
+### Why
+
+`/api/auth/providers` returned 500. It touches no database, takes no session,
+and the fault was `AUTH_SECRET` being unset — which Auth.js reads from
+`process.env` itself and never through this app's schema. That is why the
+schema "passed" while every auth route failed: **it was never called on that
+path.** A loud schema only helps the code that consults it.
+
+Requiring a session to read the diagnostic would make it useless in exactly
+that case, because a missing `AUTH_SECRET` means no session can exist. The
+disclosure is bounded: `/api/health` already names the same variables in its
+503, and every name is in a committed example file.
+
+Deriving from the schema rather than a hand-written list is what stops the
+example file being subtly wrong — a template missing a variable is worse than
+no template, because it looks complete.
+
+### Consequences
+
+- `ENV_DOCS` carries prose, grouping and secret-ness; a test fails if its keys
+  and the schema's keys disagree.
+- The upload template is `.env.production.upload`, **not**
+  `.env.production.local`: Next loads that filename ahead of `.env.local` for a
+  local production build, and a file of placeholders under the obvious name
+  broke local sign-in within a minute of being written.
+- The seeding variables are excluded from both production templates. A
+  deployment carrying a plaintext password is the one thing to avoid.
+
+## 051 — Shortcuts are a list, and nothing destructive is on it
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+One array in `src/lib/shortcuts/bindings.ts`. `?` renders it. Sequences (`g`
+then a letter) navigate; single keys act on the current screen. Every
+single-key binding is inert while an input, textarea, select or contenteditable
+has focus, and every binding except Escape is inert while a focus session is
+running.
+
+No shortcut abandons a commitment, discharges a consequence or toggles vacation
+mode.
+
+### Why
+
+A shortcut nobody can discover is a trap: it fires when a key is pressed by
+accident and there is nothing to consult afterwards. Generating the sheet from
+the bindings makes documenting one unavoidable, because the documentation is
+where the binding is defined.
+
+The typing rule is not a nicety — single-key bindings and text entry cannot
+coexist. Typing "no" into an outcome field would open a new commitment and then
+navigate.
+
+The session rule follows the server-side lock rather than duplicating it: the
+guard already returns 409 for `commitment:write` during a session, so a
+keyboard offering those actions would be a faster way to collect an error, and
+a shortcut that navigates out of a session is a shortcut out of the work. The
+shell reads the running session server-side so a second tab cannot disagree.
+
+Destructive actions are excluded because a decision that can be made by
+brushing a key is not a decision. Abandoning cannot be undone at all.
+
+### Consequences
+
+- Actions reach the page through `data-shortcut` attributes, so the layer holds
+  no state and a key does nothing when its target is absent.
+- `isDestructive()` is matched against the binding list by a test, and the
+  matcher itself is tested, so a rule that matched nothing could not pass.
+
+## 052 — The focus ring is not a component's to remove
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+`:focus-visible` is defined once globally — 2px solid `signal` — and
+`outline-none` is banned anywhere in `src/`, enforced by
+`src/lib/a11y-invariants.test.ts`.
+
+### Why
+
+Six inputs carried `outline-none` with `focus:border-signal`. That reads as a
+considered replacement and is not one: it removes a 2px ring for a 1px border
+colour change, on the components where somebody is typing — the sign-in form
+among them, which is the first thing a keyboard user meets.
+
+The ring is 6.09:1 against the ground and 5.58:1 on a surface, comfortably over
+the 3:1 that a non-text indicator needs. The border change stays; the outline
+comes back on top of it.
+
+### Consequences
+
+- Focus restoration is treated as part of the same rule: a dialog that traps
+  focus and drops it on `document.body` afterwards sends the next Tab to the
+  top of the page.
+- Inline disclosures are deliberately not trapped. They are not dialogs, and
+  trapping focus in one would be a bug rather than a courtesy.

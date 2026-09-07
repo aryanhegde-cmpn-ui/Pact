@@ -89,7 +89,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
           onChange={(e) => setIdentifier(e.target.value)}
           aria-invalid={Boolean(fieldErrors.identifier)}
           aria-describedby={fieldErrors.identifier ? 'identifier-error' : undefined}
-          className="border-edge bg-surface text-text focus:border-signal min-h-11 rounded border px-md outline-none disabled:opacity-50"
+          className="border-edge bg-surface text-text focus:border-signal min-h-11 rounded border px-md disabled:opacity-50"
           disabled={submitting}
         />
         {fieldErrors.identifier ? (
@@ -112,7 +112,7 @@ export function SignInForm({ returnTo }: { returnTo?: string }): React.JSX.Eleme
           onChange={(e) => setPassword(e.target.value)}
           aria-invalid={Boolean(fieldErrors.password)}
           aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-          className="border-edge bg-surface text-text focus:border-signal min-h-11 rounded border px-md outline-none disabled:opacity-50"
+          className="border-edge bg-surface text-text focus:border-signal min-h-11 rounded border px-md disabled:opacity-50"
           disabled={submitting}
         />
         {fieldErrors.password ? (

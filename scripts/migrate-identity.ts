@@ -20,10 +20,10 @@ import './load-env';
 
 import mongoose from 'mongoose';
 
-import { describeUri } from '@/lib/db/guard-uri';
 import { connectToDatabase } from '@/lib/db/mongoose';
-import { getEnv } from '@/lib/env';
 import { normaliseUsername, RESERVED_USERNAMES } from '@/lib/schemas/user';
+
+import { announceTarget } from './target';
 
 /** A username from an email local part, made legal and unreserved. */
 function usernameFromEmail(email: string, taken: Set<string>): string {
@@ -46,12 +46,11 @@ function usernameFromEmail(email: string, taken: Set<string>): string {
 }
 
 async function main(): Promise<void> {
-  const env = getEnv();
+  announceTarget('db:migrate:identity');
+
   await connectToDatabase();
   const db = mongoose.connection.db;
   if (!db) throw new Error('Not connected.');
-
-  console.log(`Target: ${describeUri(env.MONGODB_URI)}\n`);
 
   // ---- 1 & 2: usernames and roles ----------------------------------------
   const users = await db.collection('users').find({}).toArray();

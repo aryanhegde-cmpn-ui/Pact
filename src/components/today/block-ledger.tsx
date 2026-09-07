@@ -42,7 +42,7 @@ export function BlockLedger({
 
   return (
     <ul className="border-edge border-t">
-      {blocks.map((block) => {
+      {blocks.map((block, index) => {
         const done = block.state === 'done';
         const closed = done || block.state === 'abandoned';
         const startable = interactive && block.commitment && !closed;
@@ -73,6 +73,9 @@ export function BlockLedger({
 
                 {startable ? (
                   <Link
+                    // 1, 2 and 3 activate these. Numbered by position in the
+                    // morning, which is how they are referred to everywhere.
+                    data-shortcut={`start-block-${index + 1}`}
                     href={`/focus/${block.commitment?.id}`}
                     className="border-edge hover:border-signal min-h-11 rounded border px-sm text-sm leading-[2.5rem] transition-colors"
                   >

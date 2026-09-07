@@ -26,12 +26,14 @@ import './load-env';
 import mongoose from 'mongoose';
 
 import { hashPassword } from '@/lib/auth/password';
-import { assertSafeToMutate, describeUri } from '@/lib/db/guard-uri';
+import { assertSafeToMutate } from '@/lib/db/guard-uri';
 import { CommitmentModel } from '@/lib/db/models/commitment';
 import { UserModel } from '@/lib/db/models/user';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getEnv } from '@/lib/env';
 import { RECOVERY_THRESHOLDS } from '@/lib/schemas/recovery';
+
+import { announceTarget } from './target';
 
 /**
  * Fixed, so the specs can sign in without being told. Not a secret: it only
@@ -54,13 +56,13 @@ export const RECOVERY_FIXTURE = {
 const OVERDUE_COUNT = RECOVERY_THRESHOLDS.overdue + 5;
 
 async function main(): Promise<void> {
+  announceTarget('seed:recovery');
+
   const env = getEnv();
   const reset = process.argv.includes('--reset');
 
   await connectToDatabase();
   assertSafeToMutate(env.MONGODB_URI, 'seed:recovery');
-
-  console.log(`\nProvisioning the recovery fixture on ${describeUri(env.MONGODB_URI)}\n`);
 
   const existing = await UserModel.findOne({ usernameLower: RECOVERY_FIXTURE.username }).lean();
 

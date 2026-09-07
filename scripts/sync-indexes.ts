@@ -33,8 +33,8 @@ import { SeriesModel } from '@/lib/db/models/series';
 import { SettingsModel } from '@/lib/db/models/settings';
 import { UserModel } from '@/lib/db/models/user';
 import { connectToDatabase } from '@/lib/db/mongoose';
-import { describeUri } from '@/lib/db/guard-uri';
-import { getEnv } from '@/lib/env';
+
+import { announceTarget } from './target';
 
 const MODELS = [
   ['commitments', CommitmentModel],
@@ -60,10 +60,9 @@ const MODELS = [
 ] as const;
 
 async function main(): Promise<void> {
-  const env = getEnv();
-  await connectToDatabase();
+  announceTarget('db:indexes');
 
-  console.log(`Syncing indexes on ${describeUri(env.MONGODB_URI)}\n`);
+  await connectToDatabase();
 
   for (const [name, model] of MODELS) {
     // Returns the names of indexes it dropped.

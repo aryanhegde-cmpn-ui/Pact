@@ -24,6 +24,8 @@ import { connectToDatabase } from '@/lib/db/mongoose';
 import { getEnv } from '@/lib/env';
 import { emailSchema, passwordSchema } from '@/lib/schemas/user';
 
+import { announceTarget } from './target';
+
 /**
  * A password with no character dotenv-expand can misread.
  *
@@ -36,6 +38,8 @@ function generatePassword(): string {
 }
 
 async function main(): Promise<void> {
+  announceTarget('seed:user');
+
   const env = getEnv();
 
   const email = emailSchema.safeParse(env.SEED_USER_EMAIL ?? '');

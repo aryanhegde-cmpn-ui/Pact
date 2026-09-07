@@ -108,7 +108,7 @@ export function RedeemInviteForm({ initialToken }: { initialToken: string }): Re
 }
 
 const INPUT =
-  'border-edge bg-surface text-text min-h-11 w-full rounded border px-md py-sm outline-none focus:border-signal';
+  'border-edge bg-surface text-text min-h-11 w-full rounded border px-md py-sm focus:border-signal';
 
 function Field({
   label,

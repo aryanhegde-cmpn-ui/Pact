@@ -30,7 +30,11 @@
     "change:username": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-username.ts",
     "curriculum:import": "NODE_OPTIONS=--conditions=react-server tsx scripts/import-curriculum.ts",
     "seed:overseer": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-overseer.ts",
-    "seed:recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-recovery.ts"
+    "seed:recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-recovery.ts",
+    "users:list": "NODE_OPTIONS=--conditions=react-server tsx scripts/users-list.ts",
+    "access:reset": "NODE_OPTIONS=--conditions=react-server tsx scripts/access-reset.ts",
+    "env:check": "NODE_OPTIONS=--conditions=react-server tsx scripts/env-check.ts",
+    "env:template": "NODE_OPTIONS=--conditions=react-server tsx scripts/env-template.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",

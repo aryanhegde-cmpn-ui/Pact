@@ -27,11 +27,12 @@ import { importCurriculum } from '@/lib/curriculum/import-service';
 import { ensureBlockSeries } from '@/lib/curriculum/plan';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { UserModel } from '@/lib/db/models/user';
-import { describeUri } from '@/lib/db/guard-uri';
 import { getEnv } from '@/lib/env';
 import { toDateKey } from '@/lib/time';
 
 import { readWorkbook } from './xlsx';
+
+import { announceTarget } from './target';
 
 const DEFAULT_FILE = 'data/Aryan_SDE2_Frontend_Study_Plan_Jan2027.xlsx';
 
@@ -55,6 +56,8 @@ function line(label: string, counts: { created: number; updated: number; unchang
 }
 
 async function main(): Promise<void> {
+  announceTarget('curriculum:import');
+
   const dryRun = process.argv.includes('--dry-run');
   const file = readArg('file') ?? DEFAULT_FILE;
   const env = getEnv();
@@ -91,7 +94,6 @@ async function main(): Promise<void> {
   const ownerId = String(primary._id);
 
   console.log(`\n${dryRun ? 'Dry run' : 'Importing'}: ${file}`);
-  console.log(`  Target: ${describeUri(env.MONGODB_URI)}`);
   console.log(`  Plan:   ${mapped.phases[0]?.startDate} to ${mapped.phases.at(-1)?.endDate}\n`);
 
   const report = await importCurriculum(mapped, ownerId, { dryRun });

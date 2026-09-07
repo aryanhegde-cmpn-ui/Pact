@@ -16,9 +16,11 @@ import './load-env';
 import mongoose from 'mongoose';
 
 import { seedHistory, type PatternName } from '@/lib/commitments/seed-history';
-import { assertSafeToMutate, describeUri } from '@/lib/db/guard-uri';
+import { assertSafeToMutate } from '@/lib/db/guard-uri';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getEnv } from '@/lib/env';
+
+import { announceTarget } from './target';
 
 const PATTERNS: PatternName[] = [
   'on-track',
@@ -62,6 +64,8 @@ async function purgeSynthetic(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  announceTarget('seed:history');
+
   const pattern = (readArg('pattern') ?? 'mixed') as PatternName;
   if (!PATTERNS.includes(pattern)) {
     throw new Error(`Unknown pattern "${pattern}". One of: ${PATTERNS.join(', ')}`);
@@ -94,7 +98,7 @@ async function main(): Promise<void> {
   if (process.argv.includes('--reset')) {
     // Checked against the connection string, not NODE_ENV.
     assertSafeToMutate(env.MONGODB_URI, 'seed:history --reset');
-    console.log(`Purging synthetic rows from ${describeUri(env.MONGODB_URI)}...`);
+    console.log('Purging synthetic rows...');
     await purgeSynthetic();
   }
 
