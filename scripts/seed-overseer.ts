@@ -27,11 +27,13 @@ import './load-env';
 import mongoose from 'mongoose';
 
 import { createInvite, redeemInvite, revokeRelationship } from '@/lib/auth/relationship';
-import { assertSafeToMutate, describeUri } from '@/lib/db/guard-uri';
+import { assertSafeToMutate } from '@/lib/db/guard-uri';
 import { RelationshipModel } from '@/lib/db/models/relationship';
 import { UserModel } from '@/lib/db/models/user';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getEnv } from '@/lib/env';
+
+import { announceTarget } from './target';
 
 /**
  * Fixed, so the specs can sign in without being told.
@@ -47,6 +49,8 @@ export const OVERSEER_FIXTURE = {
 } as const;
 
 async function main(): Promise<void> {
+  announceTarget('seed:overseer');
+
   const env = getEnv();
   const reset = process.argv.includes('--reset');
 
@@ -55,8 +59,6 @@ async function main(): Promise<void> {
   // history purge: a local run against a production URI has a development
   // NODE_ENV and would otherwise pass.
   assertSafeToMutate(env.MONGODB_URI, 'seed:overseer');
-
-  console.log(`\nProvisioning the overseer fixture on ${describeUri(env.MONGODB_URI)}\n`);
 
   const primary = await UserModel.findOne({ role: 'primary' }, { _id: 1, username: 1 }).lean();
   if (!primary) throw new Error('No primary user. Run `npm run seed:user` first.');

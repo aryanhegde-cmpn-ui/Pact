@@ -94,6 +94,7 @@ export function CreateCommitmentForm({
     return (
       <button
         type="button"
+        data-shortcut="new-commitment"
         onClick={() =>
           // Three hours out, in the operator's zone rather than the browser's.
           setDefaultLocal(
@@ -177,8 +178,17 @@ export function CreateCommitmentForm({
   );
 }
 
+/*
+ * No `outline-none` here.
+ *
+ * It used to be, paired with `focus:border-signal` -- which reads as a
+ * considered swap and is not one. It removed the global `:focus-visible`
+ * outline for every keyboard user and replaced a 2px ring with a 1px border
+ * colour change, on the exact components where someone is typing. The border
+ * change stays; the outline comes back on top of it.
+ */
 const INPUT =
-  'border-edge bg-ground text-text min-h-11 w-full rounded border px-sm py-xs outline-none focus:border-signal';
+  'border-edge bg-ground text-text min-h-11 w-full rounded border px-sm py-xs focus:border-signal';
 
 function Field({
   label,

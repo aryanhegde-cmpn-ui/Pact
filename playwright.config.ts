@@ -81,13 +81,18 @@ export default defineConfig({
     {
       name: 'app',
       testMatch: '**/*.spec.ts',
-      testIgnore: ['**/overseer.spec.ts', '**/recovery.spec.ts'],
+      testIgnore: ['**/overseer.spec.ts', '**/recovery.spec.ts', '**/access.spec.ts'],
       dependencies: ['setup'],
       use: { storageState: 'test-results/.auth/primary.json' },
     },
     {
+      /**
+       * The recovery path runs against the OVERSEER fixture and resets its
+       * password, so it belongs to the project that owns that account. Doing it
+       * to the primary would invalidate PACT_E2E_PASSWORD for every later run.
+       */
       name: 'overseer',
-      testMatch: '**/overseer.spec.ts',
+      testMatch: ['**/overseer.spec.ts', '**/access.spec.ts'],
       dependencies: ['setup:overseer'],
       use: { storageState: 'test-results/.auth/overseer.json' },
     },

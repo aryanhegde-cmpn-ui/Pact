@@ -5,7 +5,16 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { __resetEnvCacheForTests, EnvironmentError, formatEnvError, getEnv, readEnv } from './env';
+import {
+  __resetEnvCacheForTests,
+  checkEnv,
+  EnvironmentError,
+  envRequirements,
+  formatEnvError,
+  getEnv,
+  missingRequired,
+  readEnv,
+} from './env';
 
 const REQUIRED = ['MONGODB_URI', 'AUTH_SECRET', 'AUTH_URL', 'CRON_SECRET'] as const;
 
@@ -136,5 +145,105 @@ describe('server-only guard', () => {
     const orphan = fileURLToPath(new URL('./schemas/env.ts', import.meta.url));
 
     expect(existsSync(orphan)).toBe(false);
+  });
+});
+
+describe('the documentation table and the schema agree', () => {
+  it('describes every variable the schema declares, and no others', () => {
+    /**
+     * `envRequirements()` walks ENV_DOCS and looks each name up in the schema,
+     * so a variable added to the schema and not to the table would simply be
+     * absent from the example file, `env:check` and `/api/health/detail` --
+     * silently, and exactly when someone is using those to find out why a
+     * deploy will not boot.
+     */
+    const documented = envRequirements()
+      .map((entry) => entry.name)
+      .sort();
+
+    // Read off the schema rather than restated, so this cannot drift either.
+    const source = readFileSync(fileURLToPath(new URL('./env.ts', import.meta.url)), 'utf8');
+    const schemaBody = source.slice(
+      source.indexOf('const envSchema = z.object({'),
+      source.indexOf('export type Env ='),
+    );
+    const declared = [...schemaBody.matchAll(/^ {2}([A-Z][A-Z0-9_]*):/gm)]
+      .map((match) => match[1])
+      .sort();
+
+    expect(declared.length).toBeGreaterThan(5);
+    expect(documented).toEqual(declared);
+  });
+});
+
+describe('the environment templates', () => {
+  /**
+   * The example file is generated from the schema and committed. This is what
+   * stops it drifting: a variable added to the schema without regenerating it
+   * fails here rather than being discovered by a deploy that boots without it.
+   */
+  const example = readFileSync(
+    fileURLToPath(new URL('../../.env.production.example', import.meta.url)),
+    'utf8',
+  );
+
+  it('lists every production variable the schema knows about', () => {
+    const expected = envRequirements()
+      .filter((entry) => entry.group !== 'Seeding (local only)')
+      .map((entry) => entry.name);
+
+    // AUTH_URL is emitted commented out, because its correct production value
+    // is "not set at all" -- so match the name, not an assignment.
+    const missing = expected.filter((name) => !new RegExp(`^#? ?${name}=`, 'm').test(example));
+
+    expect(missing).toEqual([]);
+  });
+
+  it('carries no values', () => {
+    /**
+     * A committed file with a value in it is a committed secret, and the
+     * generator reads the current shell to fill the LOCAL template. One
+     * regeneration on a configured machine would otherwise commit a
+     * connection string.
+     */
+    const assignments = example
+      .split('\n')
+      .filter((line) => /^[A-Z][A-Z0-9_]*=/.test(line))
+      .filter((line) => line.split('=').slice(1).join('=').trim() !== '');
+
+    expect(assignments).toEqual([]);
+  });
+
+  it('excludes the seeding variables from a production template', () => {
+    // A deployment carrying a plaintext password is the thing to avoid.
+    expect(example).not.toContain('SEED_USER_PASSWORD=');
+  });
+});
+
+describe('presence reporting', () => {
+  it('reports names and never values', () => {
+    const report = checkEnv({ MONGODB_URI: 'mongodb+srv://user:hunter2@host/db', AUTH_SECRET: '' });
+    const serialised = JSON.stringify(report);
+
+    expect(serialised).not.toContain('hunter2');
+    expect(report.find((entry) => entry.name === 'MONGODB_URI')?.present).toBe(true);
+  });
+
+  it('counts a blank value as absent, like the parser does', () => {
+    // A hosting dashboard produces an empty string for a variable declared and
+    // left unfilled, and "set but empty" is invisible in that dashboard.
+    const report = checkEnv({ AUTH_SECRET: '   ' });
+
+    expect(report.find((entry) => entry.name === 'AUTH_SECRET')?.present).toBe(false);
+    expect(missingRequired({ AUTH_SECRET: '   ' })).toContain('AUTH_SECRET');
+  });
+
+  it('names every missing required variable', () => {
+    expect(missingRequired({}).sort()).toEqual(['AUTH_SECRET', 'CRON_SECRET', 'MONGODB_URI']);
+  });
+
+  it('does not report an optional variable as missing', () => {
+    expect(missingRequired({})).not.toContain('APP_TIMEZONE');
+    expect(missingRequired({})).not.toContain('VAPID_PRIVATE_KEY');
   });
 });

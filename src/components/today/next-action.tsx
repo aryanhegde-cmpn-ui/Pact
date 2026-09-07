@@ -49,6 +49,9 @@ export function NextAction({
 
       {interactive ? (
         <Link
+          // The `s` shortcut activates whatever carries this, so the keyboard
+          // layer never needs to know what today's next action is.
+          data-shortcut="start-next"
           href={
             next.needsReckoning
               ? `/dashboard?reckon=${next.commitmentId}`

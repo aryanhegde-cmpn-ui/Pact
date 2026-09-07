@@ -80,6 +80,152 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * What each variable is for, where it comes from, and whether it is a secret.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SCHEMA STAYS THE SOURCE OF TRUTH FOR WHAT IS REQUIRED.
+ * ---------------------------------------------------------------------------
+ * Nothing here says whether a variable is required -- that is read off the Zod
+ * schema itself, so the example file, `npm run env:check` and
+ * `/api/health/detail` cannot drift from what the app actually enforces. This
+ * table adds only the things a schema cannot carry: a sentence of prose, a
+ * grouping, and whether the value must be treated as a secret.
+ *
+ * A test fails if these keys and the schema's keys ever disagree.
+ * ---------------------------------------------------------------------------
+ */
+export const ENV_DOCS: Record<keyof Env, { group: string; secret: boolean; description: string }> =
+  {
+    MONGODB_URI: {
+      group: 'Database',
+      secret: true,
+      description:
+        'Atlas connection string, including the database name. Atlas > Connect > Drivers.',
+    },
+    AUTH_SECRET: {
+      group: 'Authentication',
+      secret: true,
+      description:
+        'Signs the session JWT. Generate with `openssl rand -base64 32`. Rotating it signs everyone out.',
+    },
+    AUTH_URL: {
+      group: 'Authentication',
+      secret: false,
+      description:
+        'LEAVE UNSET on Vercel. Setting it pins every redirect to one host and sends previews to production.',
+    },
+    CRON_SECRET: {
+      group: 'Scheduling',
+      secret: true,
+      description:
+        'Bearer token the Cloudflare tick and the Vercel daily backstop present to /api/notifications/dispatch. Must match the Worker.',
+    },
+    VAPID_PRIVATE_KEY: {
+      group: 'Web push',
+      secret: true,
+      description: 'From `npm run vapid:generate`. Never prefixed NEXT_PUBLIC_ -- it signs pushes.',
+    },
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY: {
+      group: 'Web push',
+      secret: false,
+      description:
+        'The public half of the same keypair. Shipped to the browser on purpose -- it is what a subscription is made with.',
+    },
+    VAPID_SUBJECT: {
+      group: 'Web push',
+      secret: false,
+      description: 'Contact URI in the VAPID JWT, e.g. mailto:you@example.com.',
+    },
+    APP_TIMEZONE: {
+      group: 'Application',
+      secret: false,
+      description:
+        'IANA zone for rendering and for quiet hours. Storage is UTC everywhere. Defaults to Asia/Kolkata.',
+    },
+    SEED_USER_EMAIL: {
+      group: 'Seeding (local only)',
+      secret: false,
+      description: 'Read by `npm run seed:user` only. A deployment has no business carrying it.',
+    },
+    SEED_USER_PASSWORD: {
+      group: 'Seeding (local only)',
+      secret: true,
+      description:
+        'Deliberately ignored when it comes from a file -- dotenv expansion can alter it. Pass it in the shell or let the script generate one.',
+    },
+    SEED_USER_USERNAME: {
+      group: 'Seeding (local only)',
+      secret: false,
+      description: 'Falls back to the local part of SEED_USER_EMAIL.',
+    },
+  };
+
+export interface EnvRequirement {
+  name: keyof Env;
+  /** Read off the schema: does it accept `undefined`? */
+  required: boolean;
+  secret: boolean;
+  group: string;
+  description: string;
+}
+
+/**
+ * Every variable the schema knows about, with required-ness derived from it.
+ *
+ * A variable with a `.default()` counts as not required, which is the honest
+ * answer: the app boots without it.
+ */
+export function envRequirements(): EnvRequirement[] {
+  return (Object.keys(ENV_DOCS) as (keyof Env)[]).map((name) => {
+    const field = envSchema.shape[name];
+
+    return {
+      name,
+      required: !field.safeParse(undefined).success,
+      ...ENV_DOCS[name],
+    };
+  });
+}
+
+export interface EnvPresence {
+  name: string;
+  required: boolean;
+  secret: boolean;
+  group: string;
+  /** Blank counts as absent, exactly as `readEnv` treats it. */
+  present: boolean;
+}
+
+/**
+ * Which variables are set, by name.
+ *
+ * NEVER RETURNS A VALUE. This is read by an HTTP endpoint and by a command
+ * whose output gets pasted into issues, and a tool that reports configuration
+ * by printing it is a tool that leaks the database password the first time
+ * somebody uses it.
+ */
+export function checkEnv(source: Record<string, string | undefined> = process.env): EnvPresence[] {
+  const cleaned = readEnv(source);
+
+  return envRequirements().map(({ name, required, secret, group }) => ({
+    name,
+    required,
+    secret,
+    group,
+    present: Object.hasOwn(cleaned, name),
+  }));
+}
+
+/** The required variables that are not set. Names only. */
+export function missingRequired(
+  source: Record<string, string | undefined> = process.env,
+): string[] {
+  return checkEnv(source)
+    .filter((entry) => entry.required && !entry.present)
+    .map((entry) => entry.name);
+}
+
 function isValidTimeZone(value: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value });

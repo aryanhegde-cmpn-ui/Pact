@@ -11,21 +11,20 @@ import './load-env';
 
 import mongoose from 'mongoose';
 
-import { describeUri } from '@/lib/db/guard-uri';
 import { migrateMissIndex } from '@/lib/db/migrations/miss-index';
 import { connectToDatabase } from '@/lib/db/mongoose';
-import { getEnv } from '@/lib/env';
+
+import { announceTarget } from './target';
 
 const COLLECTION = 'events';
 
 async function main(): Promise<void> {
-  const env = getEnv();
+  announceTarget('db:migrate:miss-index');
+
   await connectToDatabase();
 
   const db = mongoose.connection.db;
   if (!db) throw new Error('Not connected.');
-
-  console.log(`Target: ${describeUri(env.MONGODB_URI)}\n`);
 
   const exists = await db.listCollections({ name: COLLECTION }).toArray();
   if (exists.length === 0) {

@@ -172,7 +172,20 @@ test.describe('the staleness banner', () => {
     // a retry that leaves the warning up reads as "still offline" and there is
     // nothing else to press.
     serveStale = false;
-    await banner.getByRole('button', { name: 'Retry' }).click();
+
+    /**
+     * `dispatchEvent` rather than `click`, and a beat to settle first.
+     *
+     * The poll above fires a `focus` event per iteration, each of which starts
+     * a re-read that replaces the banner's DOM node when it lands. `click()`
+     * re-checks actionability between resolving the element and acting on it,
+     * so under a full parallel suite it kept resolving a node that was gone by
+     * the time it clicked -- passing alone, failing in the suite.
+     *
+     * The event is what the test is about; the actionability loop is not.
+     */
+    await page.waitForTimeout(300);
+    await banner.getByRole('button', { name: 'Retry' }).dispatchEvent('click');
 
     await expect(banner).toHaveCount(0);
 

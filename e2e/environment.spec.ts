@@ -36,7 +36,10 @@ test.describe('the fixture this suite needs', () => {
     test.skip(inRecovery, 'Recovery mode is active — see the next test.');
 
     await expect(
-      page.getByRole('img', { name: /of 3 blocks done/ }),
+      // Matches the count and the noun, not the exact wording: the ring's
+      // label now carries the section's own label ("blocks kept today") so it
+      // reads as a sentence rather than as two of three of something.
+      page.getByRole('img', { name: /of 3 blocks/ }),
       'no curriculum: run `npm run curriculum:import` against this database',
     ).toBeVisible();
   });

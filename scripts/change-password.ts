@@ -19,6 +19,8 @@ import { UserModel } from '@/lib/db/models/user';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { emailSchema, normaliseEmail, passwordSchema } from '@/lib/schemas/user';
 
+import { announceTarget } from './target';
+
 function readArg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   if (index !== -1) return process.argv[index + 1];
@@ -80,6 +82,8 @@ function promptHidden(question: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  announceTarget('change:password');
+
   const email = emailSchema.safeParse(readArg('email') ?? '');
   if (!email.success) {
     throw new Error(

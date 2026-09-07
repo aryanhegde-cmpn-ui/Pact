@@ -126,6 +126,7 @@ export function CurriculumBrowser({
         </label>
         <input
           id="curriculum-filter"
+          data-shortcut="filter"
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}

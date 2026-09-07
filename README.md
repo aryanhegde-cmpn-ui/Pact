@@ -154,12 +154,27 @@ credentials.
 | `npm run lint`                  | ESLint                                                                      |
 | `npm run format`                | Prettier, writing in place                                                  |
 | `npm run seed:user`             | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
+| `npm run users:list`            | Print the target database, then every user. Read-only, no hashes            |
+| `npm run access:reset`          | Reset a password and clear lockouts. Needs `-- --username x --confirm`      |
+| `npm run env:check`             | Which required variables are set here, by name. Never a value               |
+| `npm run env:template`          | Regenerate `.env.production.example` and `.env.production.upload`           |
 | `npm run change:password`       | Change a password interactively (`-- --email you@example.com`)              |
+| `npm run change:username`       | Change a username                                                           |
 | `npm run seed:history`          | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)     |
+| `npm run seed:overseer`         | Overseer fixture, through the real invite path. Scratch databases only      |
+| `npm run seed:recovery`         | An account already past the recovery thresholds. Scratch databases only     |
+| `npm run curriculum:import`     | Import the workbook (`-- --dry-run` first). Never touches progress          |
 | `npm run db:indexes`            | Sync indexes to the models. Run after any index change                      |
+| `npm run db:migrate:identity`   | Backfill `usernameLower`, `role` and `ownerId`. Idempotent                  |
 | `npm run db:migrate:miss-index` | Replace the DEADLINE_MISSED index. Idempotent; run once on each deploy      |
 | `npm run vapid:generate`        | Generate the web-push VAPID key pair                                        |
 | `npm run icons`                 | Regenerate the PWA icon set from the SVG wordmark                           |
+
+**Every script that touches the database prints its target first** — cluster
+host and database name, credentials stripped. They all read `MONGODB_URI` from
+the shell before `.env.local`, so an export left over from an earlier command
+is enough to send the next one somewhere you did not mean. A scanner test fails
+on a database script that does not announce itself.
 
 No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 
@@ -182,6 +197,42 @@ No test touches the network — see the conventions in [`CLAUDE.md`](CLAUDE.md).
 4. Allow `0.0.0.0/0` in Atlas Network Access.
 5. Confirm the deploy with `/api/health` — it needs no authentication and
    reports the commit SHA, so you can verify _which_ build you are looking at.
+   `/api/health/detail` lists every variable by name and whether it is set, and
+   answers **without a session** when something required is missing — which is
+   the case you need it in, since a missing `AUTH_SECRET` means no session can
+   exist.
+
+Changing a variable does not change the running deployment: redeploy after
+editing one. From the CLI:
+
+```bash
+vercel link                             # once
+vercel env ls                           # what is set now, per environment
+vercel env add AUTH_SECRET production   # prompts; the value is not echoed
+vercel --prod                           # redeploy
+```
+
+`npm run env:template` writes `.env.production.upload` — gitignored, with the
+non-secret values already filled in and `REPLACE_ME` for the rest — as a
+checklist to work through. It is deliberately **not** called
+`.env.production.local`: Next loads that name ahead of `.env.local` for a local
+production build, so placeholders under it break `npm run build` on your own
+machine.
+
+## The operating manual
+
+`docs/private/OPERATING.md` is the procedures document: first-time setup, what
+the morning actually looks like, importing the curriculum, stakes, the deploy
+checklist, backups, and a troubleshooting list that starts with "I can't sign
+in".
+
+**It is local-only and gitignored.** Only `docs/private/.gitkeep` is committed.
+It describes one particular deployment, and a public copy would either go stale
+or start accumulating things that belong in a password manager. It contains no
+credentials — those live in a password manager and nowhere else.
+
+If it is not on your machine, it has not been written there yet; the structure
+is described in the pull request that introduced it.
 
 ## Layout
 

@@ -69,6 +69,9 @@ web_modules/
 .env
 .env.*
 !.env.example
+# Generated from the Zod schema and committed on purpose: it carries names and
+# descriptions, never values. Without this negation the rule above swallows it.
+!.env.production.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -150,6 +153,13 @@ next-env.d.ts
 # not catch names like `atlas-credentials.env`.
 *.env
 !.env.example
+!.env.production.example
+.env.production.upload
+
+# The operating manual. Procedures are local-only because they describe this
+# deployment; credentials live in a password manager and never in here.
+docs/private/*
+!docs/private/.gitkeep
 
 # Playwright
 /playwright-report/

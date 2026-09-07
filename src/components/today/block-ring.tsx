@@ -107,7 +107,15 @@ export function BlockRing({
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         className="size-[9.25rem]"
         role="img"
-        aria-label={`${done} of ${total} blocks done`}
+        /**
+         * The ring's whole meaning, in words.
+         *
+         * An SVG of three arcs is nothing at all to a screen reader: no text,
+         * no role, no value. This is the one place the number has to be
+         * stated rather than drawn, and it carries the label too, because
+         * "2 of 3" without a noun could be anything on the page.
+         */
+        aria-label={`${done} of ${total} ${label ?? 'blocks done'}`}
       >
         {segments.map((segment, index) => (
           <m.path

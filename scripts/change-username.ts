@@ -17,6 +17,8 @@ import { UserModel } from '@/lib/db/models/user';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { normaliseUsername, usernameSchema } from '@/lib/schemas/user';
 
+import { announceTarget } from './target';
+
 function readArg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   if (index !== -1) return process.argv[index + 1];
@@ -29,6 +31,8 @@ function readArg(name: string): string | undefined {
 }
 
 async function main(): Promise<void> {
+  announceTarget('change:username');
+
   const current = readArg('user');
   const next = readArg('to');
 

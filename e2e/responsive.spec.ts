@@ -131,6 +131,14 @@ test.describe('touch targets', () => {
           const box = element.getBoundingClientRect();
           // Zero-sized elements are hidden, not small.
           if (box.width === 0 || box.height === 0) continue;
+          /**
+           * Visually-hidden controls are not touch targets.
+           *
+           * `sr-only` is a 1px box, not a 0px one, so the skip link -- which
+           * exists only for keyboard users and is never pointed at -- failed
+           * this check on all eleven surfaces the moment it was added.
+           */
+          if (box.width <= 1 || box.height <= 1) continue;
           // Inline links inside a sentence are text, not targets.
           if (element.tagName === 'A' && getComputedStyle(element).display === 'inline') continue;
           if (box.height < 44) {

@@ -2,6 +2,8 @@
 
 import { m } from 'motion/react';
 
+import { useAnnounce } from '@/components/a11y/announcer';
+
 import { useTransition } from '@/components/motion/transitions';
 
 import Link from 'next/link';
@@ -30,6 +32,7 @@ export function CommitmentRow({
   onChanged: () => void;
 }): React.JSX.Element {
   const transition = useTransition('state');
+  const announce = useAnnounce();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reckoning, setReckoning] = useState(false);
@@ -59,6 +62,16 @@ export function CommitmentRow({
        * The parent re-reads `/api/today` and drops this row from its list,
        * which is what makes it leave, and leaving is the feedback.
        */
+      /**
+       * The row leaving is the sighted feedback. This is the same fact for a
+       * screen reader, which has no way to notice a list item disappearing --
+       * focus does not move and nothing navigates.
+       */
+      announce(
+        action === 'complete'
+          ? `Completed: ${commitment.title}.`
+          : `Abandoned: ${commitment.title}.`,
+      );
       onChanged();
     } catch {
       setError('Could not reach the server.');
