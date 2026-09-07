@@ -34,7 +34,11 @@ export const GET = requireCapability('commitment:read', async (actor, request) =
       range,
       timeZone,
       commitments: inRange,
-      overdue: overdue.filter((c) => !inRangeIds.has(c.id)),
+      overdue: overdue.commitments.filter((c) => !inRangeIds.has(c.id)),
+      // The overdue list is a bounded page. Sending the counts with it is what
+      // stops a client rendering fifteen rows as if they were all of them.
+      overdueTotal: overdue.total,
+      needsReckoningTotal: overdue.needsReckoning,
     });
   }
 });

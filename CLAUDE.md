@@ -478,6 +478,108 @@ The Worker in [`infra/tick`](infra/tick/README.md) holds **no logic** on
 purpose, so the scheduler stays swappable for cron-job.org or anything else
 that can make one authenticated request.
 
+## Focus sessions
+
+A **FocusSession** is one sitting of work against one commitment. The
+commitment says what was promised; the session says what actually happened
+while trying to keep it. It is the only place real durations come from, and it
+is what makes "you estimated 60 and it takes you 95" a fact rather than an
+impression.
+
+**`/focus/:commitmentId` is full screen and sits OUTSIDE `(shell)`.** No
+navigation, no lists, no badges. A screen with somewhere to go is a screen you
+go from.
+
+### The server holds the clock
+
+**`startedAt` is written server-side and elapsed is recomputed from it every
+time.** `actualMinutes` is written once at the end from `endedAt - startedAt`.
+The request body has no duration field and would not be believed if it did.
+
+Nothing counts intervals in the browser. A study block is 60 to 90 minutes with
+the phone locked, and a backgrounded tab's timers are throttled to once a
+minute or stopped outright — an accumulating counter would report ninety
+minutes as a few and nothing would look wrong. The client recomputes
+`now - startedAt` each tick using an offset measured once against the server's
+`serverNow`.
+
+### The lock is server-side, in the guard
+
+While a session runs, `commitment:write`, `series:write`, `curriculum:write`
+and `settings:write` return **409 "You're in a session."** from
+`requireCapability`, before the handler. Only the focus routes opt out, with
+`duringSession: true`, and a scanner fails on any other route that sets it.
+
+A lock the UI holds is not a lock: a second tab posts straight around it. One
+running session per owner is enforced by a **unique partial index** on
+`(ownerId)` where `endedAt: null`, not by checking first.
+
+Reckoning is deliberately not locked — answering a miss is not planning, and
+locking it would let an accidental session wedge the reckoning queue.
+
+### Kind is the most gameable field in the app
+
+`execution` is the default and changing it takes a deliberate click. The
+planning-versus-execution ratio is computed from it, and it is defeated
+entirely by calling planning "execution" — which would not feel like cheating,
+because reading around a problem feels like working on it. A **required** field
+would be worse: it gets the first option every time. Mid-session, the only
+switch offered is _to_ execution.
+
+### Three exits
+
+| Exit               | What it does                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------- |
+| **Done**           | Records actual minutes, asks one line on what changed, completes the commitment, advances a block's topic |
+| **Need more time** | Corrects the estimate, appends `PROGRESS_LOGGED`, leaves it open                                          |
+| **Blocked**        | Records `TASK_BLOCKED` and the blocker's kind; a person gets a follow-up                                  |
+
+**"Need more time" is not a failure anywhere** — not in copy, not in adherence,
+not in any metric. It is the honest report that an estimate was wrong, and an
+app that penalises it teaches the user to stop reporting it, at which point
+every estimate in the history is fiction.
+
+A **block session** records progress against its topic's target — problems
+solved, build finished — and that is what advances `TopicProgress`. It is the
+reason the block is the commitment and the topic is the content. A block ending
+`more-time` leaves the topic `in-progress` and makes it **tomorrow's preferred
+suggestion for that block**, ranked above the day's slant and the phase focus.
+
+### The research budget interrupts once
+
+Optional, per session, and only meaningful for a research session. At zero:
+"Research budget spent. Decide or start building." **Once, ever** — a budget
+that nags gets dismissed reflexively, and then it is noise rather than a
+decision point. Extending requires a written justification, because a budget
+that is always extended is the same as not having one.
+
+## Recovery mode
+
+Above **10 unanswered misses or 20 overdue commitments**, `/dashboard` is
+**replaced** — not annotated. Three slots: one commitment to finish, one to
+reschedule with a reason, one to abandon. No metrics, no lists, no curriculum,
+no drift. Leaving happens when both counts drop back under, which takes as many
+passes as it takes.
+
+A backlog past a certain size stops being information and becomes wallpaper,
+and the normal dashboard invites the response that caused it: faced with a long
+overdue list the reflex is to reschedule all of it, producing a bigger plan
+than the one already not being kept. Three dispositions make that impossible —
+only one slot reschedules.
+
+**Whether it is on is derived from the counts, every read.** There is no
+`inRecovery` column. The _episode_ is a `RecoverySession` document, with a
+unique partial index so concurrent reads open exactly one, and
+`RECOVERY_MODE_ENTERED` / `RECOVERY_MODE_EXITED` in the log.
+
+Recovery's reschedule **answers the miss first** and only then moves the
+deadline. An unanswered miss cannot be rescheduled, and a backlog is exactly
+when it would be tempting to let that slide.
+
+`listOverdue` is a bounded page — 15, oldest first, unanswered above answered
+within the page — returned with the true totals so a client cannot render a
+page as if it were the whole set.
+
 ## The curriculum
 
 The plan comes from a spreadsheet, `data/Aryan_SDE2_Frontend_Study_Plan_Jan2027.xlsx`,
@@ -687,6 +789,23 @@ will exhaust the pool and take the app down.
   `-dev`/`-test`/`-local` is treated as production.
 - **Seeded rows carry `synthetic: true`** and are purged by that field.
   Dropping collections would take real history with them.
+- **Mongoose does not validate updates.** `updateOne`, `updateMany`,
+  `findOneAndUpdate`, `replaceOne` and `bulkWrite` all skip validators by
+  default — that is how `role: 'owner'`, a value outside its own enum, reached
+  this database and produced an account that failed every capability check.
+  `connectToDatabase()` sets `runValidators` and `setDefaultsOnInsert`
+  globally, and a scanner in
+  [`src/lib/db-validation.test.ts`](src/lib/db-validation.test.ts) fails on raw
+  driver access outside a short annotated list, on any `bulkWrite`, and on any
+  call that turns validation off. It must be a global rather than a schema
+  plugin: `mongoose.plugin()` only reaches schemas compiled after it runs, and
+  the model modules are evaluated at import time.
+- **Materialisation costs one round trip per RANGE, not per occurrence.**
+  Commitments, events and notifications each go in one bulk insert, with ids
+  generated up front. Writing one at a time still produces the right rows and
+  took 34 seconds for a fortnight against M0 — past a Hobby function's whole
+  budget. A test asserts the write count does not scale with the number of
+  occurrences, because this regresses invisibly.
 - **Index changes need `npm run db:indexes`.** Mongoose creates missing indexes
   but never drops a redefined one, so the old key stays in place still
   enforcing its old constraint.
@@ -708,6 +827,7 @@ src/lib/schemas/       zod schemas — source of truth for types
 src/lib/env.ts         environment schema + parsed values, server-only
 src/lib/behavior/      pure analysis functions, no I/O, clock passed in
 src/lib/notifications/ queue, delivery, dispatch, push, settings, inbox
+src/lib/focus/         focus sessions: the clock, the lock, the three exits
 src/lib/curriculum/   import, suggestion, rhythm, evening rule, re-plan
 data/                 the study workbook -- the authority on the plan
 src/lib/db/migrations/ one-off index migrations
@@ -741,8 +861,8 @@ Breakpoints are 640 / 1024 / 1440 (`sm` / `lg` / `xl`).
 ## Current state
 
 Scaffold, auth, the core data model, an installable PWA, notifications with web
-push, the reckoning loop, the role/ownership model, **and the curriculum with
-its daily generator.**
+push, the reckoning loop, the role/ownership model, the curriculum with its
+daily generator, **focus sessions and recovery mode.**
 
 Working: username or email sign-in, primary and overseer roles, ownership
 scoping across every collection with a scanner enforcing it, a permission
@@ -752,6 +872,10 @@ and an overseer surface showing categories but not free text.
 Working, additionally: the workbook import, the three daily study blocks as
 Series, per-day topic suggestion with override, phase drift, and an explicit
 re-plan.
+
+Working, additionally: server-clocked focus sessions with a server-enforced
+lock, block sessions that advance topic progress, and recovery mode replacing
+the dashboard when the backlog passes its thresholds.
 
 Not built yet: rewards and consequences (the permission surface is ready for
 them), the video player, and the behaviour engine.

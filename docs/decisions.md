@@ -911,3 +911,255 @@ twenty-five minutes cheaper than it is.
   default the app quietly reverts is a lock that pretends otherwise.
 - With no curriculum imported, a block series behaves as an ordinary daily
   series. Every installation starts there.
+
+## 025 — Materialisation costs one round trip per range, not per occurrence
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`materialiseRange` generates ids up front, then writes commitments, events and
+notification rows with one bulk insert each. `appendEvents` and
+`enqueueForCommitments` are the batched forms of the existing single-row
+functions, in the same modules, with the same keys and the same rules.
+
+### Why
+
+It was nine round trips per occurrence: a commitment, two events, and six
+notification rows. A fortnight of three daily study blocks is 45 occurrences,
+and against Atlas M0 that measured **34 seconds** — past a Vercel Hobby
+function's entire budget, and getting worse as the plan runs to January.
+
+It is now **856ms cold for a 14-day range** and 1234ms for a 75-day one: the
+cost tracks the number of queries, not the number of rows.
+
+The regression this invites is invisible in behaviour. Writing one at a time
+still produces exactly the right rows; it just gets slower until something
+times out. So there is a test asserting the write count is the same for 15
+occurrences as for 75.
+
+### Consequences
+
+- Ids are generated before the insert, so the commitment holds an ObjectId
+  while the queue row holds its string form.
+- A row another invocation won comes back as a duplicate-key write error, and
+  its events and notifications are dropped with it. Writing them anyway would
+  attribute another request's row to this one.
+- `insertMany` runs Mongoose validators; `bulkWrite` does not, which is why
+  the batching uses the former and a scanner forbids the latter.
+
+## 026 — Recovery mode replaces the dashboard
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+Above 10 unanswered misses **or** 20 overdue commitments, `/dashboard` is
+replaced — not annotated — by three slots: one commitment to finish, one to
+reschedule with a reason, one to abandon. No metrics, no lists, no curriculum,
+no drift. Leaving happens when both counts drop back under, which takes as
+many passes as it takes.
+
+Whether it is on is derived from the counts on every read. The **episode** is a
+`RecoverySession` document, so a spell in recovery is visible afterwards, and a
+unique partial index makes entering safe under concurrent reads.
+
+### Why
+
+A backlog past a certain size stops being information and becomes wallpaper.
+Thirty-four unanswered misses under a banner are still thirty-four unanswered
+misses: the banner is read once and the list below it is scrolled past because
+no part of it is actionable.
+
+Worse, the normal dashboard invites the response that caused the backlog.
+Faced with a long overdue list, the reflex is to reschedule all of it, and the
+result is a bigger plan than the one already not being kept. Three slots with
+three different dispositions make that impossible — only one of them
+reschedules.
+
+Two triggers because they are two different failures: unanswered misses are a
+reckoning debt that makes the record unable to say anything true about
+behaviour, and sheer volume is a capacity problem that can happen with every
+miss dutifully answered.
+
+### Consequences
+
+- Recovery's reschedule answers the miss first, through `submitReckoning`, and
+  only then moves the deadline — an unanswered miss cannot be rescheduled, and
+  a backlog is exactly when it would be tempting to let that slide.
+- The deadline category is derived from the miss reason so the same question is
+  not asked twice in two vocabularies. The mapping is shown before submitting.
+- `listOverdue` is now a bounded page of 15 with the true totals alongside, so
+  a client cannot render a page as if it were the whole set.
+- `/study` is still reachable during recovery. The brief scoped the
+  replacement to the dashboard; widening it is a separate decision.
+
+## 027 — Mongoose does not validate updates, so the app makes it
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`connectToDatabase` sets `runValidators` and `setDefaultsOnInsert` globally.
+A scanner in `src/lib/db-validation.test.ts` fails on raw driver access outside
+a short annotated list, on any `bulkWrite`, and on any call that turns
+validation off.
+
+### Why
+
+`seedUser` wrote `role: 'owner'` through `updateOne`. The field is
+`enum: ['primary', 'overseer']`, the value is in neither, and Mongo accepted it
+silently — producing an account that failed every capability check and could
+not sign in by username. Nothing raised an error, because `save()` validates
+and update operations do not.
+
+Set globally rather than per call because the failure mode **is** a call site
+that forgets. A global rather than a schema plugin because `mongoose.plugin()`
+only reaches schemas compiled after it runs, and a model's middleware is fixed
+when `mongoose.model()` compiles it — the model modules are evaluated at import
+time, long before a Next route connects, so a plugin registered on connect
+would have covered nothing at all.
+
+### Consequences
+
+- The scanner's allow-list is four operator scripts, each annotated. Nothing
+  serving a request is on it.
+- `bulkWrite` is forbidden outright: it runs no update validators and there is
+  no option to make it.
+- Verified against a scratch database: both the original `$setOnInsert` and a
+  plain `$set` of an invalid role are now rejected.
+
+## 028 — The session clock is the server's
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+A focus session stores `startedAt` server-side. Elapsed time is recomputed from
+it on every read, and `actualMinutes` is written once at the end from
+`endedAt - startedAt`. The request body has no duration field. The browser
+recomputes `now - startedAt` each tick using a clock offset measured once
+against the server's `serverNow`; it never accumulates.
+
+### Why
+
+A study block is 60 to 90 minutes with the phone locked. A backgrounded tab's
+timers are throttled to once a minute or stopped outright, the phone sleeps,
+and the OS suspends the PWA. An accumulating counter would report ninety
+minutes as a few, and nothing on screen would look wrong.
+
+Verified end to end: a session started ten minutes earlier and read back
+reported 600 seconds exactly, and a session ended after ten minutes recorded
+ten against a sixty-minute estimate.
+
+### Consequences
+
+- `actualMinutes` is never below one. A session that lasted forty seconds is
+  not zero minutes of work, and a zero would bias the estimate history toward
+  flattery.
+- The end is a conditional update on `endedAt: null`, so two tabs ending the
+  same session complete the commitment once. Verified under a real race.
+
+## 029 — The session lock is in the guard
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+While a session runs, `commitment:write`, `series:write`, `curriculum:write`
+and `settings:write` return 409 "You're in a session." from
+`requireCapability`, before the handler. The focus routes opt out with
+`duringSession: true`, and a scanner fails on any route outside `api/focus`
+that sets it.
+
+### Why
+
+A lock the UI holds is not a lock. A second tab posts straight around it, and
+so does a phone restoring a page from before the session started.
+
+In the guard specifically, for the same reason the capability check is there:
+the realistic failure is a route added next month that nobody remembers to
+lock, and only something every route already passes through can catch that.
+
+Reckoning is deliberately not locked. Answering a miss is not planning, it
+cannot create work, and locking it would let a session started by accident
+wedge the reckoning queue behind it.
+
+### Consequences
+
+- One running session per owner is enforced by a unique partial index, not by
+  checking first — a second tab is exactly what produces that race.
+- The capability check still runs first, so an overseer gets 403 rather than a
+  409 that would tell them the route exists.
+
+## 030 — "Need more time" is not a failure
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+Ending a session with `more-time` completes nothing, abandons nothing, records
+no miss, and appears in no adherence figure. It corrects the estimate with the
+evidence just gathered, appends `PROGRESS_LOGGED`, leaves a block's topic
+`in-progress`, and makes that topic the preferred suggestion for the same block
+tomorrow — ranked above the day's slant and the phase focus.
+
+### Why
+
+It is the honest report that an estimate was wrong. An app that penalises it
+teaches the user to stop reporting it, and then every estimate in the history
+is fiction — which costs far more than the honest report ever could.
+
+Carrying the topic over matters for the same reason. A block that picks up new
+material the morning after running out of time produces a trail of half-done
+topics, and it makes saying "I need more time" cost something.
+
+### Consequences
+
+- `carriedOverTopics` lives in its own module. `focus/service` needs
+  `curriculum/service` to advance topic progress and `curriculum/plan` needs
+  the carry-over, so importing it from the service would close a three-module
+  cycle.
+- Bounded to a fortnight: a topic left in progress in July is not what today's
+  block is continuing.
+
+## 031 — Session kind defaults to execution, and changing it takes a click
+
+**Date:** 2026-09-06
+**Status:** Accepted
+
+### Decision
+
+`kind` is `execution` unless the user deliberately picks `planning` or
+`research`. It is not a required field on the start screen. Mid-session the
+only switch offered is _to_ execution.
+
+### Why
+
+The planning-versus-execution ratio is one of the few numbers that can tell
+someone they are busy rather than productive, and it is defeated entirely by
+calling planning "execution". The person doing that would not experience it as
+cheating — reading around a problem genuinely feels like working on it.
+
+A required field would be worse than a default. A field you must fill in before
+starting gets filled in with the first option every time, and the value becomes
+noise. The friction belongs on the honest-but-unflattering answer being
+_available_, never on it being _required_.
+
+Offering only the switch toward execution is the same argument: that is the
+direction that makes the ratio less flattering, not more.
+
+### Consequences
+
+- A research budget is only meaningful for a research session and is ignored
+  for the others.
+- The budget interrupts exactly once, ever. A budget that nags gets dismissed
+  reflexively, and then it is noise rather than a decision point. Extending
+  requires a written justification, because a budget that is always extended is
+  the same as not having one.

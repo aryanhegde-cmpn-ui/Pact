@@ -26,7 +26,13 @@ export function CommitmentList({
   lastDispatchAt,
   nowIso,
 }: {
-  initial: { commitments: CommitmentView[]; overdue: CommitmentView[] };
+  initial: {
+    commitments: CommitmentView[];
+    overdue: CommitmentView[];
+    /** Every overdue row, not just the page above. */
+    overdueTotal: number;
+    needsReckoningTotal: number;
+  };
   timeZone: string;
   today: string;
   vapidPublicKey?: string;
@@ -48,8 +54,15 @@ export function CommitmentList({
         const body = (await response.json()) as {
           commitments: CommitmentView[];
           overdue: CommitmentView[];
+          overdueTotal: number;
+          needsReckoningTotal: number;
         };
-        setData({ commitments: body.commitments, overdue: body.overdue });
+        setData({
+          commitments: body.commitments,
+          overdue: body.overdue,
+          overdueTotal: body.overdueTotal,
+          needsReckoningTotal: body.needsReckoningTotal,
+        });
         // The worker sets these when it falls back to cache. Never assume a
         // 200 means fresh -- that is exactly how stale deadlines get shown as
         // current.
@@ -97,7 +110,15 @@ export function CommitmentList({
             id="overdue-heading"
             className="text-signal mb-sm text-sm font-medium uppercase tracking-wide"
           >
-            Overdue · {data.overdue.length}
+            {/*
+              The count is the WHOLE set, not the page. Showing the page size
+              here would tell someone with forty overdue commitments that they
+              have fifteen.
+            */}
+            Overdue ·{' '}
+            {data.overdueTotal > data.overdue.length
+              ? `${data.overdue.length} of ${data.overdueTotal}`
+              : data.overdue.length}
           </h2>
           <ul className="flex flex-col gap-sm">
             {data.overdue.map((commitment) => (

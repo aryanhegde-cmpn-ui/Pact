@@ -9,7 +9,25 @@ import { SeriesModel } from '@/lib/db/models/series';
 import { TopicProgressModel } from '@/lib/db/models/topic-progress';
 import type { Priority } from '@/lib/schemas/commitment';
 import type { BlockId, PriorityBand, TopicStatus } from '@/lib/schemas/curriculum';
+/**
+ * Imported from its own module, not from `focus/service`.
+ *
+ * `focus/service` needs `curriculum/service` to advance topic progress, and
+ * `curriculum/service` needs this file. Reaching into it from here would close
+ * that loop, and a cycle between three modules is how an import resolves to
+ * `undefined` at module-init time for reasons nobody can see from the call
+ * site. This one function only touches the session model.
+ */
+import { carriedOverTopics } from '@/lib/focus/carry-over';
 import type { DateKey } from '@/lib/time';
+
+/**
+ * How far back a `more-time` session still counts as unfinished work.
+ *
+ * A fortnight. Long enough to cover a week off, short enough that a topic
+ * abandoned mid-way in July does not resurface as today's suggestion.
+ */
+const CARRY_OVER_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 import { slantFor } from './rhythm';
 import { commitmentTitle, suggestTopic, type SuggestableTopic } from './suggest';
@@ -53,6 +71,13 @@ export interface PlanContext {
   }[];
   topics: (SuggestableTopic & { blockId: BlockId; practiceRaw: string })[];
   progress: Map<string, TopicStatus>;
+  /**
+   * Per block, a topic its last session ended `more-time` on.
+   *
+   * Read once with the rest of the context. Bounded to the last fortnight: a
+   * topic left in progress in July is not what today's block is continuing.
+   */
+  carriedOver: Map<string, string>;
 }
 
 /**
@@ -66,12 +91,16 @@ export interface PlanContext {
  * installation starts in. The block series then behave like ordinary daily
  * series, which is correct rather than broken.
  */
-export async function loadPlanContext(ownerId: string): Promise<PlanContext | null> {
-  const [blocks, phases, topics, progress] = await Promise.all([
+export async function loadPlanContext(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<PlanContext | null> {
+  const [blocks, phases, topics, progress, carriedOver] = await Promise.all([
     BlockModel.find({ ownerId }).sort({ order: 1 }).lean(),
     PhaseModel.find({ ownerId }).sort({ number: 1 }).lean(),
     CurriculumTopicModel.find({ ownerId }).sort({ order: 1 }).lean(),
     TopicProgressModel.find({ ownerId }).lean(),
+    carriedOverTopics(ownerId, new Date(now.getTime() - CARRY_OVER_WINDOW_MS)),
   ]);
 
   if (topics.length === 0) return null;
@@ -104,6 +133,7 @@ export async function loadPlanContext(ownerId: string): Promise<PlanContext | nu
       practiceRaw: topic.practiceRaw,
     })),
     progress: new Map(progress.map((row) => [row.stableKey, row.status as TopicStatus])),
+    carriedOver,
   };
 }
 
@@ -136,6 +166,7 @@ export function planForBlock(
     slant: slantFor(date, blockId),
     phase: phaseOn(context.phases, date),
     date,
+    carriedOver: context.carriedOver.get(blockId) ?? null,
   });
 
   const chosen = suggestion.choice;

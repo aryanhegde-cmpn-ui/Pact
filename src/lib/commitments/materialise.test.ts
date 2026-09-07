@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fakeCollection } from '@/test/fake-collection';
+
 /**
  * In-memory commitments and series, with the same unique index on
  * (seriesId, occurrenceDate) the real collection carries. Materialisation's
@@ -11,42 +13,21 @@ const store = vi.hoisted(() => ({
   commitments: [] as Record<string, unknown>[],
   events: [] as Record<string, unknown>[],
   notifications: [] as Record<string, unknown>[],
-  createAttempts: 0,
+  /** Round trips, by method name. Asserted directly further down. */
+  calls: {} as Record<string, number>,
 }));
 
 vi.mock('@/lib/db/models/series', () => ({
-  SeriesModel: {
-    find: () => ({ lean: async () => store.series }),
-  },
+  SeriesModel: { find: () => ({ lean: async () => store.series }) },
 }));
 
 vi.mock('@/lib/db/models/commitment', () => ({
-  CommitmentModel: {
-    find: (query: { seriesId: string; occurrenceDate: { $in: string[] } }) => ({
-      lean: async () =>
-        store.commitments.filter(
-          (row) =>
-            row.seriesId === query.seriesId &&
-            query.occurrenceDate.$in.includes(row.occurrenceDate as string),
-        ),
-    }),
-    create: async (doc: Record<string, unknown>) => {
-      store.createAttempts += 1;
-
-      const clash = store.commitments.some(
-        (row) => row.seriesId === doc.seriesId && row.occurrenceDate === doc.occurrenceDate,
-      );
-      if (clash) {
-        const error = new Error('E11000 duplicate key') as Error & { code: number };
-        error.code = 11000;
-        throw error;
-      }
-
-      const saved = { ...doc, _id: `c${store.commitments.length + 1}` };
-      store.commitments.push(saved);
-      return saved;
-    },
-  },
+  CommitmentModel: fakeCollection(store.commitments, {
+    // The real unique partial index. Materialisation's whole concurrency story
+    // rests on it, so a mock without it would test nothing.
+    uniqueBy: ['seriesId', 'occurrenceDate'],
+    calls: store.calls,
+  }),
 }));
 
 vi.mock('@/lib/db/models/settings', () => ({
@@ -65,33 +46,15 @@ vi.mock('@/lib/db/models/settings', () => ({
 // The real queue module runs against this; whether materialisation enqueues is
 // part of what is being tested.
 vi.mock('@/lib/db/models/notification', () => ({
-  NotificationModel: {
-    create: async (doc: Record<string, unknown>) => {
-      const clash = store.notifications.some(
-        (row) =>
-          row.commitmentId === doc.commitmentId &&
-          row.type === doc.type &&
-          (row.scheduledFor as Date).getTime() === (doc.scheduledFor as Date).getTime() &&
-          row.channel === doc.channel,
-      );
-      if (clash) {
-        const error = new Error('E11000 duplicate key') as Error & { code: number };
-        error.code = 11000;
-        throw error;
-      }
-      store.notifications.push({ ...doc });
-      return doc;
-    },
-    updateOne: async () => ({ modifiedCount: 0 }),
-    updateMany: async () => ({ modifiedCount: 0 }),
-  },
+  NotificationModel: fakeCollection(store.notifications, {
+    uniqueBy: ['commitmentId', 'type', 'scheduledFor', 'channel'],
+    calls: store.calls,
+  }),
 }));
 
-vi.mock('@/lib/db/events', () => ({
-  appendEvent: async (event: Record<string, unknown>) => {
-    store.events.push(event);
-    return { appended: true, type: event.type };
-  },
+// The real appendEvents runs against this, so the batch path is exercised.
+vi.mock('@/lib/db/models/event', () => ({
+  EventModel: fakeCollection(store.events, { calls: store.calls }),
 }));
 
 const { materialiseRange } = await import('./materialise');
@@ -123,10 +86,11 @@ function dailySeries(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   store.series = [dailySeries()];
-  store.commitments = [];
-  store.events = [];
-  store.notifications = [];
-  store.createAttempts = 0;
+  // Emptied in place: the fakes hold a reference to these arrays.
+  store.commitments.length = 0;
+  store.events.length = 0;
+  store.notifications.length = 0;
+  for (const key of Object.keys(store.calls)) delete store.calls[key];
 });
 
 describe('materialiseRange', () => {
@@ -241,7 +205,9 @@ describe('series occurrences enqueue as they materialise', () => {
     // One channel only: both are enqueued, and the schedule is the same on
     // each, so mixing them would just double every entry.
     const forFirst = store.notifications.filter(
-      (n) => n.commitmentId === first?._id && n.channel === 'in-app',
+      // Stringified: the id is generated before the insert now, so the
+      // commitment holds an ObjectId and the queue row holds its string form.
+      (n) => n.commitmentId === String(first?._id) && n.channel === 'in-app',
     );
 
     const times = forFirst
@@ -259,5 +225,74 @@ describe('series occurrences enqueue as they materialise', () => {
 
     // Nothing new was created, so nothing new was queued.
     expect(store.notifications).toHaveLength(after);
+  });
+});
+
+describe('the cost is per range, not per occurrence', () => {
+  /**
+   * The regression this guards against is invisible in behaviour.
+   *
+   * Writing one occurrence at a time still produces exactly the right rows; it
+   * just costs a commitment, two events and six notification rows in separate
+   * round trips each. A fortnight of three daily blocks measured 34 seconds
+   * against Atlas M0 -- past a Vercel Hobby function's entire budget -- and the
+   * study plan runs to January. Nothing about the output would tell you.
+   */
+  function roundTrips(): number {
+    return Object.entries(store.calls)
+      .filter(([method]) => method !== 'find' && method !== 'findOne')
+      .reduce((sum, [, count]) => sum + count, 0);
+  }
+
+  it('makes the same number of writes for 15 occurrences as for 75', async () => {
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
+    const short = roundTrips();
+    const shortRows = store.commitments.length;
+
+    store.commitments.length = 0;
+    store.events.length = 0;
+    store.notifications.length = 0;
+    for (const key of Object.keys(store.calls)) delete store.calls[key];
+
+    await materialiseRange('2026-09-05', '2026-11-04', IST, OWNER, NOW);
+    const long = roundTrips();
+
+    // Five times the occurrences, and the same number of writes.
+    expect(shortRows).toBe(15);
+    expect(store.commitments).toHaveLength(75);
+    expect(long).toBe(short);
+  });
+
+  it('writes each collection exactly once for a whole range', async () => {
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
+
+    // Commitments, events, notifications. Three inserts for 15 occurrences,
+    // which under the old shape was 135 round trips.
+    expect(store.calls.insertMany).toBe(3);
+    expect(store.calls.create ?? 0).toBe(0);
+  });
+
+  it('reads what already exists once, not once per series', async () => {
+    store.series = [
+      dailySeries({ _id: 's1' }),
+      dailySeries({ _id: 's2', rule: { ...dailySeries().rule, timeOfDay: '10:00' } }),
+      dailySeries({ _id: 's3', rule: { ...dailySeries().rule, timeOfDay: '11:00' } }),
+    ];
+
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
+
+    expect(store.commitments).toHaveLength(45);
+    // One for the series list, one for the occurrences that already exist.
+    expect(store.calls.find).toBe(1);
+  });
+
+  it('stays flat when everything already exists', async () => {
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
+    for (const key of Object.keys(store.calls)) delete store.calls[key];
+
+    await materialiseRange('2026-09-05', '2026-09-05', IST, OWNER, NOW);
+
+    // Nothing to write, so nothing is written -- not even an empty insert.
+    expect(store.calls.insertMany ?? 0).toBe(0);
   });
 });

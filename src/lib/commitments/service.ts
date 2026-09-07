@@ -302,11 +302,101 @@ export async function listByDateRange(
   return inWindow.map((row) => toView(row, now, events.get(String(row._id)) ?? [])).sort(byUrgency);
 }
 
-/** Open commitments whose deadline has already passed, regardless of window. */
+/**
+ * How many overdue rows one page holds.
+ *
+ * Overdue is an ACCUMULATING set: nothing removes a row from it except
+ * finishing, abandoning or reckoning it, and the whole premise of this app is
+ * that those do not always happen. It was unbounded, and at 44 rows already
+ * cost a second and 26KB. A year of ordinary use is hundreds.
+ *
+ * Fifteen because a page is meant to be actionable. A list nobody can get to
+ * the bottom of is a list nobody reads, which is the same outcome as not
+ * showing it -- and past a certain size the answer is not a longer page, it is
+ * recovery mode.
+ */
+export const OVERDUE_PAGE = 15;
+
+export interface OverduePage {
+  commitments: CommitmentView[];
+  /** Every overdue row, not just this page. */
+  total: number;
+  /** Of those, how many are missed and unanswered. */
+  needsReckoning: number;
+}
+
+/**
+ * Overdue counts, in one aggregation.
+ *
+ * Needs-reckoning is derived from the deadline and the event log, so counting
+ * it in the application would mean reading every overdue row and its events --
+ * which is the unbounded read this page exists to avoid. The lookup keys on
+ * (entityId, ts) because a reckoning answers a DEADLINE, not a commitment: one
+ * missed on Monday, reckoned, rescheduled and missed again needs a second
+ * answer, and matching on entityId alone would call it settled.
+ */
+export async function overdueCounts(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<{ total: number; needsReckoning: number }> {
+  await connectToDatabase();
+
+  const [summary] = await CommitmentModel.aggregate<{ total: number; needsReckoning: number }>([
+    { $match: { ownerId, status: { $in: [...OPEN_STATUSES] }, dueAt: { $lt: now } } },
+    {
+      $lookup: {
+        from: 'events',
+        let: { entityId: { $toString: '$_id' }, deadline: '$dueAt' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$ownerId', ownerId] },
+                  { $eq: ['$entityId', '$$entityId'] },
+                  { $eq: ['$type', 'RECKONING_SUBMITTED'] },
+                  { $eq: ['$ts', '$$deadline'] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: 'answered',
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        needsReckoning: {
+          $sum: { $cond: [{ $eq: [{ $size: '$answered' }, 0] }, 1, 0] },
+        },
+      },
+    },
+  ]);
+
+  return { total: summary?.total ?? 0, needsReckoning: summary?.needsReckoning ?? 0 };
+}
+
+/**
+ * One page of open commitments whose deadline has already passed.
+ *
+ * Bounded, oldest first, with unanswered misses sorted above answered ones
+ * within the page. The page is the OLDEST rows rather than "every unanswered
+ * miss", because selecting on needs-reckoning would need the event log for
+ * every overdue row before it could pick fifteen -- and the oldest are the
+ * ones that have been ignored longest, which is the right thing to put in
+ * front of someone either way.
+ *
+ * The count that matters for the whole set comes back alongside, so a surface
+ * can say "15 of 44" rather than implying 15 is all of it.
+ */
 export async function listOverdue(
   ownerId: string,
   now: Date = new Date(),
-): Promise<CommitmentView[]> {
+  limit: number = OVERDUE_PAGE,
+): Promise<OverduePage> {
   await connectToDatabase();
 
   const rows = await CommitmentModel.find({
@@ -315,6 +405,7 @@ export async function listOverdue(
     dueAt: { $lt: now },
   })
     .sort({ dueAt: 1 })
+    .limit(limit)
     .lean();
 
   await recordObservedMisses(rows, ownerId, now);
@@ -324,7 +415,14 @@ export async function listOverdue(
     ownerId,
   );
 
-  return rows.map((row) => toView(row, now, events.get(String(row._id)) ?? [])).sort(byUrgency);
+  const counts = await overdueCounts(ownerId, now);
+
+  return {
+    commitments: rows
+      .map((row) => toView(row, now, events.get(String(row._id)) ?? []))
+      .sort(byUrgency),
+    ...counts,
+  };
 }
 
 export async function getCommitment(

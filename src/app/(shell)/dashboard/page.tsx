@@ -1,4 +1,6 @@
 import { CommitmentList } from '@/components/commitments/commitment-list';
+import { RecoveryMode } from '@/components/recovery/recovery-mode';
+import { getRecoveryState } from '@/lib/commitments/recovery';
 import { listByDateRange, listOverdue } from '@/lib/commitments/service';
 import { redirect } from 'next/navigation';
 
@@ -29,6 +31,20 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
   if (!actor) redirect('/');
   const ownerId = actor.ownerId;
 
+  /**
+   * Recovery mode REPLACES this page. It is not a banner on top of it.
+   *
+   * A backlog past the thresholds makes the normal dashboard actively harmful:
+   * a long overdue list invites rescheduling all of it, and the result is a
+   * bigger plan than the one already not being kept. So the list, the
+   * curriculum, the drift and the metrics all go, and three commitments with
+   * three different dispositions take their place.
+   *
+   * Checked first and returned early, so none of the rest is even queried.
+   */
+  const recovery = await getRecoveryState(ownerId, now);
+  if (recovery.active) return <RecoveryMode initial={recovery} />;
+
   const [commitments, overdue, settings] = await Promise.all([
     listByDateRange(today, today, timeZone, ownerId, now),
     listOverdue(ownerId, now),
@@ -52,7 +68,14 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
       </header>
 
       <CommitmentList
-        initial={{ commitments, overdue: overdue.filter((c) => !inRange.has(c.id)) }}
+        initial={{
+          commitments,
+          overdue: overdue.commitments.filter((c) => !inRange.has(c.id)),
+          // The page is bounded, so the surface has to say what it is a page
+          // OF. "15" with no denominator reads as "15 overdue".
+          overdueTotal: overdue.total,
+          needsReckoningTotal: overdue.needsReckoning,
+        }}
         timeZone={timeZone}
         today={today}
         // Public by design -- the browser needs it to subscribe. The private

@@ -9,8 +9,17 @@ const fakeConnection = { connection: { readyState: 1 } } as unknown as Mongoose;
 
 const connect = vi.fn<(uri: string, options?: unknown) => Promise<Mongoose>>();
 
+/** Globals set through `mongoose.set`, so the validation default is assertable. */
+const globals: Record<string, unknown> = {};
+
 vi.mock('mongoose', () => ({
-  default: { connect: (...args: [string, unknown?]) => connect(...args) },
+  default: {
+    connect: (...args: [string, unknown?]) => connect(...args),
+    set: (key: string, value: unknown) => {
+      globals[key] = value;
+    },
+    get: (key: string) => globals[key],
+  },
 }));
 
 /**
@@ -27,6 +36,7 @@ async function loadModule() {
 beforeEach(() => {
   connect.mockReset();
   connect.mockResolvedValue(fakeConnection);
+  for (const key of Object.keys(globals)) delete globals[key];
 });
 
 afterEach(async () => {
@@ -87,5 +97,28 @@ describe('connectToDatabase', () => {
     connect.mockResolvedValueOnce(fakeConnection);
     await expect(connectToDatabase()).resolves.toBe(fakeConnection);
     expect(connect).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('update validation', () => {
+  it('is turned on before the first connection is opened', async () => {
+    // Mongoose does not validate updates by default, and a role outside its
+    // own enum has already reached this database through an unvalidated
+    // `updateOne`. Every query path awaits this function, so it is the one
+    // place that covers all of them.
+    const { connectToDatabase } = await loadModule();
+    await connectToDatabase();
+
+    expect(globals.runValidators).toBe(true);
+    expect(globals.setDefaultsOnInsert).toBe(true);
+  });
+
+  it('is set even when the connection fails', async () => {
+    // The retry will query through the same models.
+    const { connectToDatabase } = await loadModule();
+    connect.mockRejectedValueOnce(new Error('no route to host'));
+
+    await expect(connectToDatabase()).rejects.toThrow('no route to host');
+    expect(globals.runValidators).toBe(true);
   });
 });

@@ -51,6 +51,15 @@ export interface SuggestionInput {
   /** Null outside every phase -- before the plan starts, or after it ends. */
   phase: PhaseFocus | null;
   date: DateKey;
+  /**
+   * A topic this block's last session ran out of time on.
+   *
+   * Ranked first, above the phase focus and above the day's slant. A block
+   * whose work is genuinely unfinished picking up new material tomorrow is how
+   * a plan produces a trail of half-done topics -- and "I need more time" is
+   * the clearest possible statement that the work continues.
+   */
+  carriedOver?: string | null;
 }
 
 export interface RankedTopic {
@@ -121,6 +130,7 @@ export function suggestTopic(input: SuggestionInput): Suggestion {
       const status = statusOf(topic);
       const reasons: string[] = [];
 
+      const carried = input.carriedOver === topic.stableKey;
       const wantsRevision = revisionFirst && status === 'needs-revision';
       const inPhase =
         input.phase !== null &&
@@ -129,6 +139,7 @@ export function suggestTopic(input: SuggestionInput): Suggestion {
       const onSlant = matchesSlant(topic, input.slant);
       const started = status === 'in-progress';
 
+      if (carried) reasons.push('you ran out of time on this last session');
       if (wantsRevision) reasons.push(`marked for revision, and today is ${input.slant}`);
       if (inPhase) reasons.push('in this phase’s focus');
       if (onSlant) reasons.push(`today’s slant is ${input.slant}`);
@@ -143,6 +154,7 @@ export function suggestTopic(input: SuggestionInput): Suggestion {
          * a visible change rather than a tuning exercise.
          */
         key: [
+          carried ? 0 : 1,
           wantsRevision ? 0 : 1,
           inPhase ? 0 : 1,
           onSlant ? 0 : 1,

@@ -62,6 +62,72 @@ export async function appendEvent(input: AppendEventInput): Promise<AppendResult
   }
 }
 
+/**
+ * Appends many events in one round trip.
+ *
+ * Still the single write path: this lives in the same module as `appendEvent`
+ * and nothing outside it touches the collection. The reason it exists is
+ * materialisation, which creates a fortnight of occurrences at a time and was
+ * paying two round trips per occurrence for its events alone. Against Atlas
+ * M0 that is the difference between one request and forty.
+ *
+ * `ordered: false` so one rejected row does not abandon the rest. Duplicates of
+ * a once-per-entity type are still success -- the same reasoning as
+ * `appendEvent`, just reported per row rather than by throwing.
+ */
+export async function appendEvents(inputs: AppendEventInput[]): Promise<{
+  appended: number;
+  /** Rows a concurrent invocation had already written. Not a failure. */
+  duplicates: number;
+}> {
+  if (inputs.length === 0) return { appended: 0, duplicates: 0 };
+
+  const docs = inputs.map((input) => {
+    const parsed = appendEventInputSchema.parse(input);
+
+    return {
+      ts: parsed.ts ?? new Date(),
+      type: parsed.type,
+      entityType: parsed.entityType,
+      entityId: parsed.entityId,
+      payload: parsed.payload ?? {},
+      source: parsed.source,
+      ownerId: parsed.ownerId,
+      ...(parsed.source === 'seed' ? { synthetic: true } : {}),
+    };
+  });
+
+  try {
+    await EventModel.insertMany(docs, { ordered: false });
+
+    return { appended: docs.length, duplicates: 0 };
+  } catch (error) {
+    const rejected = writeErrorsOf(error);
+
+    /**
+     * Every rejection has to be a duplicate of a once-per-entity type, or this
+     * is a real failure and must not be swallowed. A silently dropped event is
+     * a hole in the only record that can answer "why does it say that?".
+     */
+    const notDuplicates = rejected.filter((entry) => entry.code !== DUPLICATE_KEY);
+    if (rejected.length === 0 || notDuplicates.length > 0) throw error;
+
+    return { appended: docs.length - rejected.length, duplicates: rejected.length };
+  }
+}
+
+/** The per-row errors from a partially-rejected `insertMany`. */
+function writeErrorsOf(error: unknown): { index: number; code: number }[] {
+  const errors = (error as { writeErrors?: unknown }).writeErrors;
+  if (!Array.isArray(errors)) return [];
+
+  return errors.map((entry: unknown) => {
+    const row = entry as { index?: number; code?: number; err?: { index?: number; code?: number } };
+
+    return { index: row.index ?? row.err?.index ?? -1, code: row.code ?? row.err?.code ?? 0 };
+  });
+}
+
 /** Reads one entity's history, oldest first. The behaviour engine's input. */
 export async function readEntityEvents(
   entityId: string,

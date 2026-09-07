@@ -90,6 +90,34 @@ function capabilitiesOf(code: string): Capability[] {
   return [...code.matchAll(/requireCapability\('([^']+)'/g)].map((match) => match[1] as Capability);
 }
 
+describe('the session lock', () => {
+  it('is bypassed only by the focus routes', () => {
+    /**
+     * `duringSession` lets a route write while a session is running. Ending a
+     * session completes its commitment, so the focus routes need it; nothing
+     * else does. A route elsewhere setting it would reopen the hole the lock
+     * exists to close -- writing from a second tab mid-session.
+     */
+    const bypassing = ROUTES.filter(({ code }) => /duringSession:\s*true/.test(code)).map(
+      (route) => route.rel,
+    );
+
+    expect(bypassing.every((rel) => rel.startsWith('api/focus/'))).toBe(true);
+  });
+
+  it('is enforced in the guard, not in each route', () => {
+    // The realistic failure is a route added next month that nobody remembers
+    // to lock. Only something every route already passes through catches that.
+    const guard = readFileSync(
+      fileURLToPath(new URL('../lib/api/guard.ts', import.meta.url)),
+      'utf8',
+    );
+
+    expect(guard).toMatch(/SESSION_LOCKED_CAPABILITIES/);
+    expect(guard).toMatch(/hasRunningSession/);
+  });
+});
+
 describe('the primary is denied consequence configuration', () => {
   it('holds for every capability a route actually requires', () => {
     /**

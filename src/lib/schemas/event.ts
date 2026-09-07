@@ -38,6 +38,29 @@ export const eventTypeSchema = z.enum([
    * `src/lib/behavior/drift.ts`, which computes the gap and writes nothing.
    */
   'PLAN_REPLANNED',
+  /**
+   * The backlog crossed the point where the dashboard stops helping.
+   *
+   * Recorded so an episode is visible in the history afterwards. Whether
+   * recovery is currently ON is derived from the counts, never from these.
+   */
+  'RECOVERY_MODE_ENTERED',
+  'RECOVERY_MODE_EXITED',
+  // --- Focus sessions -----------------------------------------------------
+  'SESSION_STARTED',
+  'SESSION_ENDED',
+  /**
+   * Work happened and the thing is not finished.
+   *
+   * NOT a failure, anywhere: not in copy, not in adherence, not in any metric.
+   * It is the honest report that an estimate was wrong, and an app that
+   * penalises it teaches the user to stop reporting it -- at which point every
+   * estimate in the history is fiction.
+   */
+  'PROGRESS_LOGGED',
+  'TASK_BLOCKED',
+  /** A research budget ran out and a decision was made about it. Once per session. */
+  'RESEARCH_BUDGET_SPENT',
 ]);
 export type EventType = z.infer<typeof eventTypeSchema>;
 
@@ -48,6 +71,10 @@ export const entityTypeSchema = z.enum([
   'topic',
   /** The plan as a whole: imports and re-plans, which belong to no single row. */
   'plan',
+  /** An episode of recovery mode, which belongs to no single commitment. */
+  'recovery',
+  /** One sitting of work. Its own entity, so its history survives the commitment's. */
+  'session',
 ]);
 export type EntityType = z.infer<typeof entityTypeSchema>;
 
