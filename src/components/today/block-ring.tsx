@@ -1,3 +1,9 @@
+'use client';
+
+import { m } from 'motion/react';
+
+import { useTransition } from '@/components/motion/transitions';
+
 /**
  * The plan ring.
  *
@@ -22,6 +28,12 @@
  * There is no colour for "done". A filled segment is `text`, an empty one is
  * `edge`. A green would be a reward for completion, which is the one reward
  * this app is allowed to withhold.
+ *
+ * The only motion is the stroke changing colour when a block is kept: 200ms,
+ * eased, no overshoot. It exists so the change is visible when it happens
+ * rather than appearing to have always been that way -- NOT to mark the
+ * occasion. A segment that sprang, pulsed or scaled would be a reward for
+ * completing, which is exactly what the missing colour is avoiding.
  * ---------------------------------------------------------------------------
  */
 
@@ -54,6 +66,19 @@ function arcPath(startAngle: number, endAngle: number): string {
   return `M ${x1} ${y1} A ${RADIUS} ${RADIUS} 0 ${large} 1 ${x2} ${y2}`;
 }
 
+/**
+ * The stroke for a segment, read from the tokens.
+ *
+ * Resolved to the custom property rather than a class, because a colour
+ * transition needs a value on both sides -- and the values still come from the
+ * five tokens, never from a literal.
+ */
+function strokeFor(segment: Segment): string {
+  if (segment.done) return 'var(--pact-text)';
+
+  return segment.current ? 'var(--pact-signal)' : 'var(--pact-edge)';
+}
+
 export function BlockRing({
   done,
   total,
@@ -67,6 +92,8 @@ export function BlockRing({
   currentIndex?: number;
   label?: string;
 }): React.JSX.Element {
+  const transition = useTransition('state');
+
   const segments: Segment[] = Array.from({ length: total }, (_, index) => ({
     done: index < done,
     current: index === currentIndex,
@@ -83,15 +110,16 @@ export function BlockRing({
         aria-label={`${done} of ${total} blocks done`}
       >
         {segments.map((segment, index) => (
-          <path
+          <m.path
             key={index}
             d={arcPath(index * sweep + GAP / 2, (index + 1) * sweep - GAP / 2)}
             fill="none"
             strokeWidth={STROKE}
             strokeLinecap="butt"
-            className={
-              segment.done ? 'stroke-text' : segment.current ? 'stroke-signal' : 'stroke-edge'
-            }
+            // Animated through CSS custom properties rather than by swapping a
+            // class, so the transition has two values to move between.
+            animate={{ stroke: strokeFor(segment) }}
+            transition={transition}
           />
         ))}
       </svg>

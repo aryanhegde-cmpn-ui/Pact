@@ -57,12 +57,45 @@ export default defineConfig({
    * throttle exists to refuse.
    */
   projects: [
-    { name: 'setup', testMatch: /.*\.setup\.ts$/ },
+    { name: 'setup', testMatch: /auth\.setup\.ts$/ },
+    {
+      /**
+       * Provisions the second account through the real invite flow, so the
+       * overseer's pages are reachable at all. Depends on the primary's
+       * session: minting an invite is the primary's action.
+       */
+      name: 'setup:overseer',
+      testMatch: /overseer\.setup\.ts$/,
+      dependencies: ['setup'],
+      use: { storageState: 'test-results/.auth/primary.json' },
+    },
+    {
+      /**
+       * A third account, seeded past the recovery thresholds. It cannot be the
+       * primary: recovery mode replaces the dashboard, which is the surface
+       * most of the suite is about.
+       */
+      name: 'setup:recovery',
+      testMatch: /recovery\.setup\.ts$/,
+    },
     {
       name: 'app',
       testMatch: '**/*.spec.ts',
+      testIgnore: ['**/overseer.spec.ts', '**/recovery.spec.ts'],
       dependencies: ['setup'],
       use: { storageState: 'test-results/.auth/primary.json' },
+    },
+    {
+      name: 'overseer',
+      testMatch: '**/overseer.spec.ts',
+      dependencies: ['setup:overseer'],
+      use: { storageState: 'test-results/.auth/overseer.json' },
+    },
+    {
+      name: 'recovery',
+      testMatch: '**/recovery.spec.ts',
+      dependencies: ['setup:recovery'],
+      use: { storageState: 'test-results/.auth/recovery.json' },
     },
   ],
 

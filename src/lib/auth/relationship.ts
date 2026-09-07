@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { PactError } from '@/lib/api/errors';
+
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { hashPassword } from '@/lib/auth/password';
@@ -11,13 +13,9 @@ import { emailSchema, normaliseUsername, passwordSchema, usernameSchema } from '
 /** How long an invite stays redeemable. */
 export const INVITE_TTL_DAYS = 7;
 
-export class RelationshipError extends Error {
-  override readonly name = 'RelationshipError';
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
+export class RelationshipError extends PactError {
+  constructor(message: string, status = 400) {
+    super(message, status);
   }
 }
 

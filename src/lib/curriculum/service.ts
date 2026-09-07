@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { PactError } from '@/lib/api/errors';
+
 import { computeDrift, phaseOn, type Drift } from '@/lib/behavior/drift';
 import { listByDateRange, type CommitmentView } from '@/lib/commitments/service';
 import { appendEvent } from '@/lib/db/events';
@@ -34,12 +36,9 @@ import { suggestTopic, type RankedTopic } from './suggest';
  * rule. This module is the I/O around it.
  */
 
-export class CurriculumError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
+export class CurriculumError extends PactError {
+  constructor(message: string, status = 400) {
+    super(message, status);
   }
 }
 

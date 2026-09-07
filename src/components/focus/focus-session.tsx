@@ -1,7 +1,11 @@
 'use client';
 
+import { m } from 'motion/react';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+
+import { MotionProvider } from '@/components/motion/motion-provider';
+import { useTransition } from '@/components/motion/transitions';
 
 import type { ActiveSession } from '@/lib/focus/service';
 import {
@@ -98,6 +102,13 @@ export function FocusSession({ initial }: { initial: ActiveSession }): React.JSX
   const [busy, setBusy] = useState(false);
   const [finished, setFinished] = useState<string | null>(null);
   const elapsed = useElapsed(session);
+  /**
+   * Entering a session is a mode change: the app stops being a list and
+   * becomes one screen with one thing on it. A crossfade says that happened on
+   * purpose. There is no exit animation -- the App Router has no built-in one
+   * for route changes, and fighting it would cost more than a cut is worth.
+   */
+  const transition = useTransition('mode');
 
   const budgetSeconds = session.researchBudgetMinutes
     ? session.researchBudgetMinutes * 60 - elapsed
@@ -140,7 +151,7 @@ export function FocusSession({ initial }: { initial: ActiveSession }): React.JSX
 
   if (finished) {
     return (
-      <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-lg p-lg">
+      <main className="mx-auto flex min-h-dvh w-full max-w-[36rem] flex-col justify-center gap-lg p-lg sm:p-2xl">
         <p className="text-lg">{finished}</p>
         <button
           type="button"
@@ -154,113 +165,122 @@ export function FocusSession({ initial }: { initial: ActiveSession }): React.JSX
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-xl p-lg">
-      {/* No nav, no back button, no badges. Leaving is the confirm below. */}
-      <header>
-        <p className="text-text/40 text-xs uppercase tracking-wide">
-          {SESSION_KIND_LABELS[session.kind]}
-        </p>
-        <h1 className="mt-2xs text-xl font-semibold tracking-tight">{session.commitment.title}</h1>
-        <p className="text-text/60 mt-xs text-sm">{session.commitment.outcome}</p>
-
-        {session.topicLabel ? (
-          <p className="text-text/50 mt-xs text-sm">
-            {session.topicLabel}
-            {session.topicTargetLabel ? (
-              <span className="text-text/40"> · {session.topicTargetLabel}</span>
-            ) : null}
+    <MotionProvider>
+      <m.main
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={transition}
+        className="mx-auto flex min-h-dvh w-full max-w-[36rem] flex-col justify-center gap-xl p-lg sm:max-w-[42rem] sm:p-2xl"
+      >
+        {/* No nav, no back button, no badges. Leaving is the confirm below. */}
+        <header>
+          <p className="text-text/40 text-xs uppercase tracking-wide">
+            {SESSION_KIND_LABELS[session.kind]}
           </p>
-        ) : null}
+          <h1 className="mt-2xs text-xl font-semibold tracking-tight">
+            {session.commitment.title}
+          </h1>
+          <p className="text-text/60 mt-xs text-sm">{session.commitment.outcome}</p>
 
-        <p className="text-text/40 mt-xs text-xs">
-          Estimated {session.plannedMinutes ?? session.commitment.estimateMinutes} minutes.
-        </p>
-      </header>
+          {session.topicLabel ? (
+            <p className="text-text/50 mt-xs text-sm">
+              {session.topicLabel}
+              {session.topicTargetLabel ? (
+                <span className="text-text/40"> · {session.topicTargetLabel}</span>
+              ) : null}
+            </p>
+          ) : null}
 
-      <div className="flex flex-col items-center gap-xs py-xl">
-        <p className="font-mono text-3xl tabular-nums">{clock(elapsed)}</p>
-        {session.interruptionCount > 0 ? (
-          <p className="text-text/40 text-xs">
-            {session.interruptionCount} interruption{session.interruptionCount === 1 ? '' : 's'}
+          <p className="text-text/40 mt-xs text-xs">
+            Estimated {session.plannedMinutes ?? session.commitment.estimateMinutes} minutes.
           </p>
-        ) : null}
-      </div>
+        </header>
 
-      {error ? <p className="text-signal text-sm">{error}</p> : null}
+        <div className="flex flex-col items-center gap-xs py-xl">
+          <p className="figures-display sm:text-[5rem]">{clock(elapsed)}</p>
+          {session.interruptionCount > 0 ? (
+            <p className="text-text/40 text-xs">
+              {session.interruptionCount} interruption{session.interruptionCount === 1 ? '' : 's'}
+            </p>
+          ) : null}
+        </div>
 
-      {/*
+        {error ? <p className="text-signal text-sm">{error}</p> : null}
+
+        {/*
         The research budget's ONE interruption. Shown when the budget is spent
         and not yet answered, and never again after. A budget that nags gets
         dismissed reflexively, and then it is noise rather than a decision.
       */}
-      {budgetSpent && !session.budgetWarned ? (
-        <BudgetInterrupt
-          busy={busy}
-          onDecide={async (body) => {
-            const result = await post('/api/focus/budget', body);
-            if (result?.session) setSession(result.session as ActiveSession);
-          }}
-        />
-      ) : null}
-
-      {exit === null ? (
-        <div className="flex flex-col gap-sm">
-          <button
-            type="button"
-            onClick={() => setExit('done')}
-            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
-          >
-            Done
-          </button>
-          <button
-            type="button"
-            onClick={() => setExit('more-time')}
-            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
-          >
-            Need more time
-          </button>
-          <button
-            type="button"
-            onClick={() => setExit('blocked')}
-            className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
-          >
-            Blocked
-          </button>
-
-          <KindSwitch
-            current={session.kind}
+        {budgetSpent && !session.budgetWarned ? (
+          <BudgetInterrupt
             busy={busy}
-            onChange={async (kind) => {
-              // Only ever downward in flattery: switching TO execution is the
-              // budget decision, and switching away from it is the honest one.
-              const result = await post('/api/focus/budget', { decision: 'execute' });
+            onDecide={async (body) => {
+              const result = await post('/api/focus/budget', body);
               if (result?.session) setSession(result.session as ActiveSession);
-              void kind;
             }}
           />
+        ) : null}
 
-          <button
-            type="button"
-            onClick={async () => {
-              if (!window.confirm('Leave the session? It keeps running.')) return;
-              await post('/api/focus/interrupt', {});
-              router.push('/study');
-            }}
-            className="text-text/40 hover:text-signal mt-lg min-h-11 text-xs underline"
-          >
-            Leave without ending it
-          </button>
-        </div>
-      ) : (
-        <ExitForm
-          exit={exit}
-          session={session}
-          busy={busy}
-          onCancel={() => setExit(null)}
-          onSubmit={end}
-        />
-      )}
-    </main>
+        {exit === null ? (
+          <div className="flex flex-col gap-sm">
+            <button
+              type="button"
+              onClick={() => setExit('done')}
+              className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
+            >
+              Done
+            </button>
+            <button
+              type="button"
+              onClick={() => setExit('more-time')}
+              className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
+            >
+              Need more time
+            </button>
+            <button
+              type="button"
+              onClick={() => setExit('blocked')}
+              className="border-edge hover:border-signal min-h-11 rounded border px-md text-sm transition-colors"
+            >
+              Blocked
+            </button>
+
+            <KindSwitch
+              current={session.kind}
+              busy={busy}
+              onChange={async (kind) => {
+                // Only ever downward in flattery: switching TO execution is the
+                // budget decision, and switching away from it is the honest one.
+                const result = await post('/api/focus/budget', { decision: 'execute' });
+                if (result?.session) setSession(result.session as ActiveSession);
+                void kind;
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={async () => {
+                if (!window.confirm('Leave the session? It keeps running.')) return;
+                await post('/api/focus/interrupt', {});
+                router.push('/study');
+              }}
+              className="text-text/40 hover:text-signal mt-lg min-h-11 text-xs underline"
+            >
+              Leave without ending it
+            </button>
+          </div>
+        ) : (
+          <ExitForm
+            exit={exit}
+            session={session}
+            busy={busy}
+            onCancel={() => setExit(null)}
+            onSubmit={end}
+          />
+        )}
+      </m.main>
+    </MotionProvider>
   );
 }
 

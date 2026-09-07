@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { PactError } from '@/lib/api/errors';
+
 import { completeCommitment, type CommitmentView } from '@/lib/commitments/service';
 import { appendEvent } from '@/lib/db/events';
 import { CommitmentModel } from '@/lib/db/models/commitment';
@@ -45,12 +47,9 @@ function isDuplicateKeyError(error: unknown): boolean {
   );
 }
 
-export class SessionError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
+export class SessionError extends PactError {
+  constructor(message: string, status = 400) {
+    super(message, status);
   }
 }
 

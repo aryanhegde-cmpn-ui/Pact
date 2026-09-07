@@ -1575,3 +1575,172 @@ status reaches them through `/api/today`.
   field accepted and ignored is the other way this gets defeated.
 - Reading never evaluates: an overseer opening their page cannot activate a
   consequence. Evaluation belongs to the primary's own Today read.
+
+## 044 — A route handler may not return a bare 500
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+Every guarded route runs inside `translateError`, which maps a Zod failure to
+422, any `PactError` to the status it names, a Mongoose `ValidationError` to
+400, a duplicate key to 409, and everything else to a 500 carrying a logged
+correlation id. Every domain error class extends `PactError`, and
+`src/lib/api-errors.test.ts` fails on one that does not.
+
+### Why
+
+Creating an invite returned 500 with no explanation. Two separate defects made
+it, and only one was the obvious one: `can()` threw a `TypeError` for a role
+outside the enum, from outside the try/catch — and `RelationshipError`, along
+with four sibling classes, never reached the translator at all, so a perfectly
+articulate "an active relationship already exists" arrived as a stack trace in
+a server log.
+
+`can()` now fails closed. The translator is the structural half: an escaped
+exception is a bug, but a 500 that says nothing is a bug you cannot diagnose
+from the outside, and this app has exactly one operator.
+
+The first attempt matched `error.constructor.name` against a list of class
+names. It passed every unit test and still returned 500 in production, because
+the minifier mangles class names. `instanceof PactError` is the version that
+survives a build.
+
+### Consequences
+
+- A new domain error extends `PactError` and gets its status for free.
+- `EnvironmentError` is exempt: it is a misconfiguration, not a request
+  failure, and maps to 503.
+- The correlation id is the only thing the response body carries about the
+  cause; the detail stays in the log.
+
+## 045 — A surface no spec can reach is a fixture problem
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+Surfaces belonging to an account other than the primary get an account of their
+own, seeded by a script and signed in by a Playwright setup project with its
+own storage state. There are three: the primary, the overseer
+(`scripts/seed-overseer.ts`), and an account already past the recovery
+thresholds (`scripts/seed-recovery.ts`).
+
+### Why
+
+Decision 039 recorded four surfaces the suite could not see, as though they
+were properties of the app. Three of them were properties of the seed. Every
+spec signed in as the primary because the primary was the only account any seed
+produced, and each gap was then written down as inherent — which is what stops
+anybody looking at it again.
+
+The landing page shipped a 600px form on a 390px screen through the same hole.
+By the time the overseer's pages were built, it had cost three bugs.
+
+Recovery mode is the clearest case. It replaces the dashboard, so it genuinely
+cannot be tested on the primary's account — and that is an argument for a
+second account, not for leaving the screen uncovered.
+
+Both seeds go through the real path: the overseer through invite and
+redemption rather than an inserted role field, the recovery account through
+ordinary overdue commitments rather than a forced flag.
+
+### Consequences
+
+- `uncovered.spec.ts` lists one remaining gap, push delivery, which needs a
+  real device.
+- The staleness banner is tested at the two response headers that are the
+  worker's entire contract with the UI, rather than through cache emulation.
+- Each seed refuses to run against anything but a scratch database, and
+  `--reset` deletes only what it created.
+
+## 046 — Motion explains what changed, and never rewards
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+Motion (`motion@13`, the package Framer Motion is published as) is loaded
+through `LazyMotion` with the `domAnimation` subset and the `m` components.
+Two durations exist, both eased, both defined in one module: 200ms for a state
+change and 320ms for a mode change. Under `prefers-reduced-motion` every
+transition becomes `duration: 0`.
+
+Animated: a row leaving a list, the miss block arriving above everything, a
+ring segment changing state, recovery and focus mode replacing a screen.
+
+Not animated: entrance on load, hover flourishes, scroll reveals, anything
+spring.
+
+### Why
+
+The test is the one in CLAUDE.md: **if an animation would feel good to trigger
+repeatedly, it is a reward.** A flourish on completing a commitment is the
+celebratory animation the anti-feature list bans, arriving as a nice touch
+rather than as a feature anyone would have argued for. A row leaving is the
+feedback, and it is feedback because the row is gone, not because it was fun.
+
+Springs are banned for the same reason at a smaller scale: overshoot is
+expressive, and a commitment leaving because it was completed and one leaving
+because it was abandoned are the same movement.
+
+Reduced motion means cuts, not shorter animations. Halving a duration misreads
+the setting — someone who asked for it is often asking because motion makes them
+ill.
+
+The cost is real and was measured rather than assumed: **+138.5 KB raw,
++46.3 KB gzipped** on the client bundle, from 305.6 KB to 351.9 KB gzipped.
+`domAnimation` rather than `domMax` is most of what keeps it that small; it also
+means there is no layout projection, so a list collapses its own height instead
+of animating its siblings' positions.
+
+### Consequences
+
+- `src/lib/motion-invariants.test.ts` scans for springs, staggers, scale,
+  rotate, hover and scroll effects, and for any transition not routed through
+  the shared hook.
+- `e2e/motion.spec.ts` asserts the runtime half. It watches inline styles as
+  well as `document.getAnimations()`, because Motion drives height on the main
+  thread and the browser's own animation list cannot see it.
+- App Router has no exit animation for route changes. Navigation is a cut, on
+  purpose; animation happens within a route.
+
+## 047 — Never size anything with a name the spacing scale defines
+
+**Date:** 2026-09-07
+**Status:** Accepted
+
+### Decision
+
+`max-w-sm`, `max-w-xl`, `min-w-lg` and the rest of that family are banned.
+Widths use an explicit value — `max-w-[36rem]` — and
+`src/lib/ui-invariants.test.ts` fails on any `max-w`, `min-w`, `w`, `basis` or
+`size` utility whose name is also a step in the spacing scale.
+
+### Why
+
+The theme defines `--spacing-sm`, `--spacing-xl` and so on, and in Tailwind v4 a
+named width utility resolves against the spacing scale before the container
+scale. `max-w-sm` therefore meant `max-width: 12px`. `max-w-xl` meant 32px.
+`max-w-2xl` matched nothing and applied no cap at all.
+
+It shipped because everything about it looks correct: it is the class every
+Tailwind project uses, the build says nothing, and the responsive suite is
+happy — a 32px column does not overflow anything. The focus screen, which is
+nothing but a centred column, rendered 32px wide on a desktop for a whole
+release, and the sign-in card, the invite page and the offline page were all
+12px.
+
+This is decision 037 again in a different namespace. The rule generalises: when
+a token namespace collides with a utility scale, name the value explicitly
+rather than trusting the resolution order.
+
+### Consequences
+
+- Five files changed to explicit widths; the scanner covers the rest.
+- `max-w-5xl` on the app shell is untouched and correct — the spacing scale
+  stops at `3xl`, which is exactly why the collision was invisible in the one
+  place anybody looked.

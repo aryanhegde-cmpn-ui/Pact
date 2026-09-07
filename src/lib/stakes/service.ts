@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { PactError } from '@/lib/api/errors';
+
 import {
   adherenceOver,
   evaluateStakes,
@@ -49,12 +51,9 @@ import { getVacationState, vacationDaysBetween } from './vacation';
  * when a scheduler happened to run would be a stake that fires late.
  */
 
-export class StakesError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
+export class StakesError extends PactError {
+  constructor(message: string, status = 400) {
+    super(message, status);
   }
 }
 

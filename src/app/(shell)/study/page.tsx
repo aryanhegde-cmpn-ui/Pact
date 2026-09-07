@@ -40,13 +40,22 @@ export default async function StudyPage(): Promise<React.JSX.Element> {
         </div>
 
         <nav className="flex gap-md text-sm">
-          <Link href="/study/curriculum" className="text-text/60 hover:text-signal underline">
+          <Link
+            href="/study/curriculum"
+            className="text-text/60 hover:text-signal inline-flex min-h-11 items-center underline"
+          >
             Curriculum
           </Link>
-          <Link href="/study/phases" className="text-text/60 hover:text-signal underline">
+          <Link
+            href="/study/phases"
+            className="text-text/60 hover:text-signal inline-flex min-h-11 items-center underline"
+          >
             Phases
           </Link>
-          <Link href="/study/review" className="text-text/60 hover:text-signal underline">
+          <Link
+            href="/study/review"
+            className="text-text/60 hover:text-signal inline-flex min-h-11 items-center underline"
+          >
             Review
           </Link>
         </nav>

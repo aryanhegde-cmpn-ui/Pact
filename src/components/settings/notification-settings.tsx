@@ -237,7 +237,7 @@ export function NotificationSettings({ initial }: { initial: Settings }): React.
         <button
           type="button"
           onClick={() => void unsubscribeHere().then(loadDevices)}
-          className="text-text/50 hover:text-text mt-md block text-xs underline"
+          className="text-text/50 hover:text-text mt-md inline-flex min-h-11 items-center text-xs underline"
         >
           Turn off notifications on this device
         </button>

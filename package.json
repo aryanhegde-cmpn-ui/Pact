@@ -28,12 +28,15 @@
     "vapid:generate": "tsx scripts/generate-vapid.ts",
     "db:migrate:identity": "NODE_OPTIONS=--conditions=react-server tsx scripts/migrate-identity.ts",
     "change:username": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-username.ts",
-    "curriculum:import": "NODE_OPTIONS=--conditions=react-server tsx scripts/import-curriculum.ts"
+    "curriculum:import": "NODE_OPTIONS=--conditions=react-server tsx scripts/import-curriculum.ts",
+    "seed:overseer": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-overseer.ts",
+    "seed:recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-recovery.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
     "@tanstack/react-query": "^5.102.8",
     "mongoose": "^9.9.4",
+    "motion": "^13.2.0",
     "next": "^16.3.4",
     "next-auth": "^5.0.0-beta.32",
     "react": "^19.2.8",

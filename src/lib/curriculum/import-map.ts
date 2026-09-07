@@ -1,3 +1,4 @@
+import { PactError } from '@/lib/api/errors';
 import type {
   Block,
   BlockId,
@@ -40,7 +41,12 @@ function cell(row: Row | undefined, column: string): string {
   return (row?.[column] ?? '').trim();
 }
 
-export class ImportError extends Error {}
+/**
+ * A workbook that cannot be read.
+ *
+ * A 400: the file is the caller's, and the message names the row and the cell.
+ */
+export class ImportError extends PactError {}
 
 /**
  * Finds the row after a header whose first cell matches, and the rows under it.
