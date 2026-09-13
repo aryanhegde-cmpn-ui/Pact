@@ -1,7 +1,8 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { SignInForm } from '@/components/auth/sign-in-form';
-import { auth } from '@/lib/auth';
+import { currentActor } from '@/lib/api/guard';
 import { DEFAULT_SIGNED_IN_PATH, safeReturnTo } from '@/lib/auth/return-to';
 
 /**
@@ -22,14 +23,23 @@ export default async function LandingPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<React.JSX.Element> {
-  const session = await auth();
+  /**
+   * `currentActor()`, NOT `auth()`, and this is a bug fix rather than tidying.
+   *
+   * A session invalidated by a password reset still has a signed, unexpired
+   * JWT. When this page trusted that, it redirected the holder to the
+   * dashboard, the dashboard's guard refused them and redirected back here,
+   * and the browser gave up with ERR_TOO_MANY_REDIRECTS -- an infinite bounce
+   * with no way to reach the sign-in form that would have fixed it.
+   */
+  const actor = await currentActor();
   const params = await searchParams;
 
   // An absent or hostile value both collapse to the default, silently.
   const destination = safeReturnTo(params.returnTo);
   const cameFromProtectedRoute = destination !== DEFAULT_SIGNED_IN_PATH;
 
-  if (session?.user) {
+  if (actor) {
     redirect(destination);
   }
 
@@ -72,6 +82,21 @@ export default async function LandingPage({
         <div className="mt-2xl">
           <SignInForm returnTo={destination} />
         </div>
+
+        {/*
+          Under the form, small, and permanently there rather than appearing
+          after a failure. Somebody who has forgotten their password already
+          knows it before they type anything, and a link that only shows up
+          once you have failed makes you fail first.
+        */}
+        <p className="text-text/40 mt-lg text-sm">
+          <Link
+            href="/recover"
+            className="hover:text-text inline-flex min-h-11 items-center underline"
+          >
+            Forgot your password?
+          </Link>
+        </p>
       </div>
     </main>
   );

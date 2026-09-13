@@ -26,7 +26,15 @@ export async function POST(request: Request): Promise<Response> {
       displayName: body.displayName,
     });
 
-    return jsonOk({ created: true, overseerUserId: result.overseerUserId });
+    /**
+     * The codes come back in this response and exist nowhere else in
+     * plaintext. The form must show them before it lets anyone continue.
+     */
+    return jsonOk({
+      created: true,
+      overseerUserId: result.overseerUserId,
+      recoveryCodes: result.recoveryCodes,
+    });
   } catch (error) {
     if (error instanceof RelationshipError) return jsonError(error.message, error.status);
     return translateError(error);

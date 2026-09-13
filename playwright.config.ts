@@ -50,6 +50,21 @@ export default defineConfig({
   testDir: './e2e',
 
   /**
+   * CAPPED, BECAUSE THE OTHER END IS ONE PROCESS AND A FREE-TIER CLUSTER.
+   * -------------------------------------------------------------------------
+   * Playwright defaults to one worker per core -- six here -- all pointed at a
+   * single `next start` talking to Atlas M0, which caps connections. The
+   * symptom is not a clear overload: it is two or three specs failing per run,
+   * a different two or three each time, every one of them reporting that some
+   * element is missing. Chasing those as product bugs costs far more than the
+   * two minutes the extra workers save, and each of them passes on its own.
+   *
+   * Three is comfortably inside what the server and the cluster serve without
+   * queueing.
+   */
+  workers: 3,
+
+  /**
    * Two projects: sign in once, then run everything against that session.
    *
    * Signing in per spec is both slow and flaky here -- attempts are throttled
@@ -81,7 +96,12 @@ export default defineConfig({
     {
       name: 'app',
       testMatch: '**/*.spec.ts',
-      testIgnore: ['**/overseer.spec.ts', '**/recovery.spec.ts', '**/access.spec.ts'],
+      testIgnore: [
+        '**/overseer.spec.ts',
+        '**/recovery.spec.ts',
+        '**/access.spec.ts',
+        '**/account-recovery.spec.ts',
+      ],
       dependencies: ['setup'],
       use: { storageState: 'test-results/.auth/primary.json' },
     },
@@ -94,6 +114,26 @@ export default defineConfig({
       name: 'overseer',
       testMatch: ['**/overseer.spec.ts', '**/access.spec.ts'],
       dependencies: ['setup:overseer'],
+      use: { storageState: 'test-results/.auth/overseer.json' },
+    },
+    {
+      /**
+       * ITS OWN PROJECT, AND IT RUNS LAST.
+       * -----------------------------------------------------------------
+       * Recovering an account ends every session it had -- that is the
+       * feature -- and the overseer's storage state is one of those sessions.
+       * Sharing a project with `overseer.spec.ts` meant six workers
+       * interleaving them, so roughly half that file ran signed out and the
+       * failures read as bugs in the overseer's pages.
+       *
+       * `dependencies` is the only ordering Playwright offers, so the
+       * dependency IS the fix: the overseer project has to finish before this
+       * one starts. The next run re-provisions the account from scratch in
+       * `setup:overseer`, which is what puts the password back.
+       */
+      name: 'account-recovery',
+      testMatch: '**/account-recovery.spec.ts',
+      dependencies: ['overseer'],
       use: { storageState: 'test-results/.auth/overseer.json' },
     },
     {

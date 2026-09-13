@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 
 import { expect, test as setup } from '@playwright/test';
 
+import { OVERSEER_PASSWORD, OVERSEER_STORAGE, OVERSEER_USERNAME } from './fixtures';
+
 /**
  * Storage state for the overseer, from a real redeemed invite.
  *
@@ -18,10 +20,8 @@ import { expect, test as setup } from '@playwright/test';
  * fixture exercises the flow it depends on. This runs it, then signs in.
  * ---------------------------------------------------------------------------
  */
-export const OVERSEER_STORAGE = 'test-results/.auth/overseer.json';
-
-const USERNAME = 'overseer1';
-const PASSWORD = 'OverseerPass2026x';
+const USERNAME = OVERSEER_USERNAME;
+const PASSWORD = OVERSEER_PASSWORD;
 
 setup.skip(
   !process.env.PACT_E2E_IDENTIFIER || !process.env.PACT_E2E_PASSWORD,

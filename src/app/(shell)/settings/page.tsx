@@ -1,10 +1,12 @@
 import { NotificationSettings } from '@/components/settings/notification-settings';
+import { RecoveryCodesSection } from '@/components/settings/recovery-codes-section';
 import { VacationToggle } from '@/components/settings/vacation-toggle';
 import { redirect } from 'next/navigation';
 
 import { currentActor } from '@/lib/api/guard';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { getSettings } from '@/lib/notifications/settings';
+import { remainingRecoveryCodes } from '@/lib/auth/account-recovery';
 import { getVacationState } from '@/lib/stakes/vacation';
 
 export const dynamic = 'force-dynamic';
@@ -15,9 +17,12 @@ export default async function SettingsPage(): Promise<React.JSX.Element> {
   const actor = await currentActor();
   if (!actor) redirect('/');
 
-  const [settings, vacation] = await Promise.all([
+  const [settings, vacation, recoveryCodesLeft] = await Promise.all([
     getSettings(actor.ownerId),
     getVacationState(actor.ownerId),
+    // The caller's OWN login, so `userId` rather than `ownerId`: an overseer's
+    // codes are theirs, not the primary's.
+    remainingRecoveryCodes(actor.userId),
   ]);
 
   return (
@@ -28,6 +33,8 @@ export default async function SettingsPage(): Promise<React.JSX.Element> {
       </header>
 
       <VacationToggle initial={vacation} />
+
+      <RecoveryCodesSection remaining={recoveryCodesLeft} />
 
       <NotificationSettings
         initial={{

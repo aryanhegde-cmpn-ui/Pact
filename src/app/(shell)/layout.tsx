@@ -9,6 +9,7 @@ import { MobileTabBar } from '@/components/nav/mobile-tab-bar';
 import { SidebarNav } from '@/components/nav/sidebar-nav';
 import { auth } from '@/lib/auth';
 import { countNeedsReckoning } from '@/lib/commitments/service';
+import { currentActor } from '@/lib/api/guard';
 import { recoveryForRequest } from '@/lib/commitments/recovery-gate';
 import { sessionForRequest } from '@/lib/focus/request';
 
@@ -25,15 +26,24 @@ export default async function ShellLayout({
 }: {
   children: ReactNode;
 }): Promise<React.JSX.Element> {
-  const session = await auth();
+  /**
+   * The session AND the actor.
+   *
+   * `auth()` answers "is this JWT signed and unexpired", which is not the same
+   * question as "may this person act" -- a session issued before a password
+   * reset satisfies the first and fails the second. Everything that decides
+   * signed-in-ness goes through `currentActor()`; the raw session is read only
+   * for the display name it carries.
+   */
+  const [session, actor] = await Promise.all([auth(), currentActor()]);
 
-  if (!session?.user) {
+  if (!session?.user || !actor) {
     redirect('/');
   }
 
   const displayName = session.user.name ?? session.user.email ?? 'Signed in';
 
-  const ownerId = session.user.ownerId ?? session.user.id;
+  const ownerId = actor.ownerId;
 
   // Derived on read like every other behavioural number here.
   const outstanding = await countNeedsReckoning(ownerId);

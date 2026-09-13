@@ -1,5 +1,4 @@
-import { auth } from '@/lib/auth';
-import { jsonError, jsonOk, readJson, translateError } from '@/lib/api/guard';
+import { currentActor, jsonError, jsonOk, readJson, translateError } from '@/lib/api/guard';
 import { PushSubscriptionModel } from '@/lib/db/models/push-subscription';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { registerSubscriptionSchema } from '@/lib/schemas/push';
@@ -9,14 +8,14 @@ export const dynamic = 'force-dynamic';
 
 /** The endpoints this user currently has registered. */
 export async function GET(): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
+  const actor = await currentActor();
+  if (!actor) return jsonError('Sign in required.', 401);
 
   try {
     await connectToDatabase();
     const rows = await PushSubscriptionModel.find({
-      userId: session.user.id,
-      ownerId: session.user.id,
+      userId: actor.userId,
+      ownerId: actor.userId,
     }).lean();
 
     return jsonOk({
@@ -45,8 +44,8 @@ export async function GET(): Promise<Response> {
  * their own copy of every notification.
  */
 export async function POST(request: Request): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
+  const actor = await currentActor();
+  if (!actor) return jsonError('Sign in required.', 401);
 
   try {
     const input = registerSubscriptionSchema.parse(await readJson(request));
@@ -56,9 +55,9 @@ export async function POST(request: Request): Promise<Response> {
       { endpoint: input.endpoint },
       {
         $set: {
-          userId: session.user.id,
+          userId: actor.userId,
           // A device belongs to the account that registered it.
-          ownerId: session.user.id,
+          ownerId: actor.userId,
           keys: input.keys,
           userAgent: (input.userAgent ?? '').slice(0, 500),
           // A re-registration is evidence the endpoint is alive, so the
@@ -79,19 +78,19 @@ export async function POST(request: Request): Promise<Response> {
 
 /** Removes a subscription. Used by the device list and by the client on unsubscribe. */
 export async function DELETE(request: Request): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
+  const actor = await currentActor();
+  if (!actor) return jsonError('Sign in required.', 401);
 
   try {
     const body = (await readJson(request)) as { endpoint?: string; id?: string };
     await connectToDatabase();
 
     const filter = body.endpoint
-      ? { endpoint: body.endpoint, userId: session.user.id, ownerId: session.user.id }
-      : { _id: body.id, userId: session.user.id, ownerId: session.user.id };
+      ? { endpoint: body.endpoint, userId: actor.userId, ownerId: actor.userId }
+      : { _id: body.id, userId: actor.userId, ownerId: actor.userId };
 
     // `filter` carries ownerId in both branches above.
-    const result = await PushSubscriptionModel.deleteOne({ ...filter, ownerId: session.user.id });
+    const result = await PushSubscriptionModel.deleteOne({ ...filter, ownerId: actor.userId });
     return jsonOk({ deleted: result.deletedCount ?? 0 });
   } catch (error) {
     return translateError(error);

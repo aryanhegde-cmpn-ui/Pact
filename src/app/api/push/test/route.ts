@@ -1,5 +1,4 @@
-import { auth } from '@/lib/auth';
-import { jsonError, jsonOk, translateError } from '@/lib/api/guard';
+import { currentActor, jsonError, jsonOk, translateError } from '@/lib/api/guard';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { isPushConfigured, sendToUser } from '@/lib/notifications/push';
 
@@ -15,8 +14,8 @@ export const dynamic = 'force-dynamic';
  * service rejects. The response says which.
  */
 export async function POST(): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return jsonError('Sign in required.', 401);
+  const actor = await currentActor();
+  if (!actor) return jsonError('Sign in required.', 401);
 
   try {
     if (!isPushConfigured()) {
@@ -31,7 +30,7 @@ export async function POST(): Promise<Response> {
 
     await connectToDatabase();
 
-    const report = await sendToUser(session.user.id, {
+    const report = await sendToUser(actor.userId, {
       notificationId: 'test',
       commitmentId: null,
       type: 'TEST',

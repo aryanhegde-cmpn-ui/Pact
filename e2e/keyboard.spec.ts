@@ -148,10 +148,33 @@ test.describe('shortcuts', () => {
     await page.goto('/progress');
     await page.waitForLoadState('networkidle');
 
+    /**
+     * Waits for the keyboard layer to exist before pressing anything.
+     *
+     * `networkidle` says the page has loaded, not that React has attached its
+     * listeners -- and a keypress that lands a millisecond early is simply
+     * swallowed, which reads as "the shortcut is broken". `?` opens a dialog
+     * that only the client renders, so it is honest proof the layer is live.
+     */
+    await page.keyboard.press('?');
+    await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
     await page.keyboard.press('g');
     await page.keyboard.press('t');
 
-    await expect(page).toHaveURL(/\/dashboard$/);
+    /**
+     * A generous timeout, because the URL is the LAST thing to change.
+     *
+     * `router.push` in the App Router does not update the address bar until
+     * the RSC payload for the destination has come back, and `/dashboard` is
+     * the most expensive page in the app. The shortcut has already fired by
+     * this point; what is being waited on is a server render. Five seconds is
+     * enough on an idle machine and not enough on a busy one, which made this
+     * the only spec that failed under load.
+     */
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
   });
 
   test('every single key is inert while an input has focus', async ({ page }) => {

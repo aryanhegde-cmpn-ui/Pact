@@ -142,33 +142,34 @@ credentials.
 
 ## Scripts
 
-| Command                         | What it does                                                                |
-| ------------------------------- | --------------------------------------------------------------------------- |
-| `npm run dev`                   | Development server on :3000, opens your browser once it is ready            |
-| `npm run dev:no-open`           | Same, without launching a browser                                           |
-| `npm run build`                 | Production build                                                            |
-| `npm start`                     | Serve the production build                                                  |
-| `npm test`                      | Run the Vitest suite once                                                   |
-| `npm run test:watch`            | Vitest in watch mode                                                        |
-| `npm run typecheck`             | `tsc --noEmit`                                                              |
-| `npm run lint`                  | ESLint                                                                      |
-| `npm run format`                | Prettier, writing in place                                                  |
-| `npm run seed:user`             | Create the single user from `SEED_USER_*`; `-- --force` resets the password |
-| `npm run users:list`            | Print the target database, then every user. Read-only, no hashes            |
-| `npm run access:reset`          | Reset a password and clear lockouts. Needs `-- --username x --confirm`      |
-| `npm run env:check`             | Which required variables are set here, by name. Never a value               |
-| `npm run env:template`          | Regenerate `.env.production.example` and `.env.production.upload`           |
-| `npm run change:password`       | Change a password interactively (`-- --email you@example.com`)              |
-| `npm run change:username`       | Change a username                                                           |
-| `npm run seed:history`          | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)     |
-| `npm run seed:overseer`         | Overseer fixture, through the real invite path. Scratch databases only      |
-| `npm run seed:recovery`         | An account already past the recovery thresholds. Scratch databases only     |
-| `npm run curriculum:import`     | Import the workbook (`-- --dry-run` first). Never touches progress          |
-| `npm run db:indexes`            | Sync indexes to the models. Run after any index change                      |
-| `npm run db:migrate:identity`   | Backfill `usernameLower`, `role` and `ownerId`. Idempotent                  |
-| `npm run db:migrate:miss-index` | Replace the DEADLINE_MISSED index. Idempotent; run once on each deploy      |
-| `npm run vapid:generate`        | Generate the web-push VAPID key pair                                        |
-| `npm run icons`                 | Regenerate the PWA icon set from the SVG wordmark                           |
+| Command                         | What it does                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `npm run dev`                   | Development server on :3000, opens your browser once it is ready                |
+| `npm run dev:no-open`           | Same, without launching a browser                                               |
+| `npm run build`                 | Production build                                                                |
+| `npm start`                     | Serve the production build                                                      |
+| `npm test`                      | Run the Vitest suite once                                                       |
+| `npm run test:watch`            | Vitest in watch mode                                                            |
+| `npm run typecheck`             | `tsc --noEmit`                                                                  |
+| `npm run lint`                  | ESLint                                                                          |
+| `npm run format`                | Prettier, writing in place                                                      |
+| `npm run seed:user`             | Create the single user from `SEED_USER_*`; `-- --force` resets the password     |
+| `npm run users:list`            | Print the target database, then every user. Read-only, no hashes                |
+| `npm run access:reset`          | Reset a password and clear lockouts. Needs `-- --username x --confirm`          |
+| `npm run recovery:generate`     | Issue an account ten recovery codes, printed once (`-- --username x --confirm`) |
+| `npm run env:check`             | Which required variables are set here, by name. Never a value                   |
+| `npm run env:template`          | Regenerate `.env.production.example` and `.env.production.upload`               |
+| `npm run change:password`       | Change a password interactively (`-- --email you@example.com`)                  |
+| `npm run change:username`       | Change a username                                                               |
+| `npm run seed:history`          | 60 days of synthetic history (`-- --pattern chronic-postponer --reset`)         |
+| `npm run seed:overseer`         | Overseer fixture, through the real invite path. Scratch databases only          |
+| `npm run seed:recovery`         | An account already past the recovery thresholds. Scratch databases only         |
+| `npm run curriculum:import`     | Import the workbook (`-- --dry-run` first). Never touches progress              |
+| `npm run db:indexes`            | Sync indexes to the models. Run after any index change                          |
+| `npm run db:migrate:identity`   | Backfill `usernameLower`, `role` and `ownerId`. Idempotent                      |
+| `npm run db:migrate:miss-index` | Replace the DEADLINE_MISSED index. Idempotent; run once on each deploy          |
+| `npm run vapid:generate`        | Generate the web-push VAPID key pair                                            |
+| `npm run icons`                 | Regenerate the PWA icon set from the SVG wordmark                               |
 
 **Every script that touches the database prints its target first** — cluster
 host and database name, credentials stripped. They all read `MONGODB_URI` from

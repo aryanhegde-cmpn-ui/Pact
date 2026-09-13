@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { dueLaterToday } from './fixtures';
+
 /**
  * The definition of done, checked on the thing rather than asserted about it.
  *
@@ -171,7 +173,7 @@ test.describe('completing without a refresh', () => {
       data: {
         title: `Fixture ${Date.now()}`,
         outcome: 'The end-to-end check has something to complete',
-        dueAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+        dueAt: dueLaterToday(),
         estimateMinutes: 15,
         priority: 'maintenance',
       },

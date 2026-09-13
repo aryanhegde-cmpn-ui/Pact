@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const store = vi.hoisted(() => ({
   relationships: [] as Record<string, unknown>[],
   users: [] as Record<string, unknown>[],
+  recoveryCodes: [] as Record<string, unknown>[],
 }));
 
 vi.mock('@/lib/db/mongoose', () => ({ connectToDatabase: async () => ({}) }));
@@ -74,8 +75,39 @@ vi.mock('@/lib/db/models/user', () => ({
       return saved;
     },
     findById: () => ({ lean: async () => store.users[0] ?? null }),
+    findOne: (filter: Record<string, unknown>) => ({
+      lean: async () => store.users.find((row) => row._id === filter._id) ?? null,
+    }),
+    updateOne: async (
+      filter: Record<string, unknown>,
+      update: { $set: Record<string, unknown> },
+    ) => {
+      const row = store.users.find((candidate) => candidate._id === filter._id);
+      if (row) Object.assign(row, update.$set);
+
+      return { modifiedCount: row ? 1 : 0 };
+    },
   },
 }));
+
+/**
+ * Redeeming an invite now issues the new account's recovery codes in the same
+ * call -- an overseer created without them has no way back in, since there is
+ * no reset email and they cannot ask the primary to run a script.
+ *
+ * Faked here so this file stays about the invite. `account-recovery.test.ts`
+ * owns the codes themselves.
+ */
+vi.mock('@/lib/db/models/recovery-code', () => ({
+  RecoveryCodeModel: {
+    insertMany: async (docs: Record<string, unknown>[]) => {
+      store.recoveryCodes.push(...docs);
+    },
+    countDocuments: async () => store.recoveryCodes.length,
+  },
+}));
+
+vi.mock('@/lib/db/events', () => ({ appendEvent: async () => {} }));
 
 const { createInvite, redeemInvite, revokeRelationship, describeRelationship } =
   await import('./relationship');
@@ -86,6 +118,7 @@ const PRIMARY = 'primary-1';
 beforeEach(() => {
   store.relationships = [];
   store.users = [];
+  store.recoveryCodes = [];
 });
 
 async function invite(): Promise<string> {
@@ -130,6 +163,28 @@ describe('redeemInvite', () => {
 
     expect(result.primaryUserId).toBe(PRIMARY);
     expect(store.users[0]).toMatchObject({ role: 'overseer', ownerId: PRIMARY });
+  });
+
+  it('issues the new account its recovery codes', async () => {
+    /**
+     * In the same call, not offered afterwards. An account created without
+     * them has no way back in: there is no reset email, and an overseer cannot
+     * ask the primary to run a script on their behalf.
+     */
+    const invite = await createInvite(PRIMARY, NOW);
+    const result = await redeemInvite(
+      {
+        token: invite.token,
+        username: 'watcher',
+        email: 'w@example.test',
+        password: 'LongEnoughPass1',
+      },
+      NOW,
+    );
+
+    expect(result.recoveryCodes).toHaveLength(10);
+    // Formatted for transcription, in two groups of five.
+    for (const code of result.recoveryCodes) expect(code).toMatch(/^[A-Z2-9]{5}-[A-Z2-9]{5}$/);
   });
 
   it('is SINGLE USE', async () => {
