@@ -109,10 +109,20 @@ async function waitForHydration(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Hide history' }).first().click();
 }
 
-async function givenSomethingToComplete(page: Page, label: string): Promise<void> {
+/**
+ * Returns the EXACT title it created.
+ *
+ * Every run leaves its fixture behind -- these are due later today, so the
+ * tidy that closes the overdue backlog does not touch them. Filtering on the
+ * label alone therefore matches every previous run's row too, and completing
+ * "the first one" completes somebody else's while this test waits for its own
+ * to disappear.
+ */
+async function givenSomethingToComplete(page: Page, label: string): Promise<string> {
+  const title = `${label} ${Date.now()}`;
   const created = await page.context().request.post('/api/commitments', {
     data: {
-      title: `${label} ${Date.now()}`,
+      title,
       outcome: 'The motion suite has something to complete',
       dueAt: dueLaterToday(),
       estimateMinutes: 10,
@@ -120,6 +130,8 @@ async function givenSomethingToComplete(page: Page, label: string): Promise<void
     },
   });
   expect(created.ok()).toBe(true);
+
+  return title;
 }
 
 /** The open rows in "also today" -- the list the exit animation acts on. */
@@ -149,18 +161,28 @@ test.describe('with reduced motion', () => {
   });
 
   test('completes without passing through intermediate frames', async ({ page }) => {
-    await givenSomethingToComplete(page, 'Reduced motion fixture');
+    const title = await givenSomethingToComplete(page, 'Reduced motion fixture');
 
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     await waitForHydration(page);
 
-    const before = await openRows(page).count();
+    /**
+     * Scoped to THIS row rather than a count.
+     *
+     * Other projects create and complete commitments against the same scratch
+     * database, so a count taken before the click and compared afterwards is a
+     * race with whatever else is running. The row this test created is the one
+     * whose departure it is about.
+     */
+    const row = openRows(page).filter({ hasText: title }).first();
+    await expect(row).toBeVisible();
+
     await record(page);
-    await openRows(page).first().getByRole('button', { name: 'Complete' }).click();
+    await row.getByRole('button', { name: 'Complete' }).click();
 
     // The row still leaves. It simply does not travel there.
-    await expect.poll(async () => openRows(page).count(), { timeout: 15_000 }).toBe(before - 1);
+    await expect(row).toHaveCount(0, { timeout: 15_000 });
 
     const { heights } = await captured(page);
     expect(heights.length, `heights written: ${heights.join(', ')}`).toBeLessThanOrEqual(1);

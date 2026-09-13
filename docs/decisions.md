@@ -2031,3 +2031,172 @@ changed after sign-in used to take up to ninety days to take effect.
   plaintext in one response and nowhere afterwards.
 - `npm run change:password` and `npm run access:reset` stay. They are the
   operator's tools for somebody else's account, which is a different job.
+
+## 054 — Coverage is registered, and a skipped registration counts as absent
+
+**Date:** 2026-09-13
+**Status:** Accepted
+
+### Decision
+
+`e2e/coverage/` lists every page route and every API route with the test that
+covers it. `src/lib/route-coverage.test.ts` walks the filesystem and fails on
+anything unregistered, on a registration naming a test that does not exist, on
+one naming a test that is skipped, and on an exemption whose reason is too
+short to be a reason.
+
+Every API route declares four cases — success shape, unauthenticated,
+authorised-but-forbidden, validation — or says explicitly why one cannot exist.
+
+### Why
+
+Being touched is not being covered. Every spec in this suite signed in through
+the landing page, and it shipped with a 600px form on a 390px screen while the
+suite was green. Coverage inferred from "a route was loaded" would have counted
+that page as covered on the day it broke.
+
+The four cases are four different code paths: the handler, the guard's session
+check, the guard's capability check, and the schema. A route with a green
+success test and nothing else is a route whose AUTHORISATION has never run
+under test, and authorisation is where a mistake stays invisible until somebody
+exploits it.
+
+A skipped registration is worse than a missing one, because it looks like
+coverage in a passing run. `environment.spec.ts` already goes red when a
+conditional skip is about to fire; this is the same rule applied to the
+registry.
+
+### The gate is watched failing
+
+`route-coverage-gate.test.ts` plants an unregistered route, a stale
+registration, a skipped test and a title nothing generates, and requires the
+gate to catch each. Every scanner in this repository has had to be defended
+against the same failure: matching nothing and passing.
+
+### Consequences
+
+- The three refusals are GENERATED from the registry by
+  `e2e/api-contract.spec.ts`, titled by shared builders so the registered
+  string and the emitted one are identical by construction. Writing 46 of each
+  by hand is 46 chances to paste the wrong capability, and one would be wrong
+  in the direction that passes.
+- Two mistakes that the sweep made and that are worth not repeating:
+  `request.newContext()` inherits the project's storage state, so an
+  "anonymous" caller is signed in unless told otherwise — it reported forty
+  passing 401s that were all 200s; and a malformed body sent with a GET
+  validates nothing, because GET ignores bodies and answers 200.
+- The capability check runs before the schema, so a validation probe has to be
+  sent by a caller who holds the capability. Testing `/api/stakes/*` as the
+  primary gets a 403 and never reaches the schema.
+
+## 055 — The walkthrough is one linear run, and it is the manual's screenshots
+
+**Date:** 2026-09-13
+**Status:** Accepted
+
+### Decision
+
+`e2e/walkthrough.spec.ts` runs the product in the order a person meets it,
+capturing each step at 390px and 1440px into `docs/private/screenshots/` and
+generating `docs/private/SCREENSHOTS.md`. Step sections match OPERATING.md's
+headings. It carries the success case for every route that changes something.
+
+It runs last, in its own Playwright project, depending on every project that
+reads the shared fixture.
+
+### Why
+
+Every other spec proves one thing in isolation. Most of what goes wrong in this
+app goes wrong BETWEEN surfaces, and a suite of isolated assertions never
+crosses those seams.
+
+Generating the screenshots from the same pass that asserts against them is the
+point: a picture in the manual cannot show a screen that no longer works,
+because the run that took it also tested it. Pasting images in by hand produces
+a section that is accurate on the day it is written, and a second run appends
+rather than refreshes.
+
+Ordering is enforced by `dependencies` because the walkthrough is destructive —
+it revokes the overseer, re-invites, takes a holiday and re-plans a phase. Six
+workers interleaving it with `overseer.spec.ts` meant half that file ran signed
+out, and the failures read as bugs in the overseer's pages.
+
+### What it found
+
+Four assumptions about the product that were wrong, and are now written down:
+splitting a miss CLOSES the original commitment, so its deadline can no longer
+move; Tomorrow's blocks are startable on purpose, because completing tomorrow's
+work today is recognised rather than merely permitted; a consequence's status
+cannot be PATCHed at all, because discharge is earned; and `/api/health/detail`
+reported a malformed VAPID key as a DATABASE error, on the one endpoint whose
+job is saying what is misconfigured.
+
+### Consequences
+
+- The interactive inventory (`e2e/inventory.spec.ts`) reports controls nothing
+  clicks rather than failing on them. A control that only appears in a state
+  the fixture does not reach is information, and failing on it would teach
+  everyone to add it to an allow-list.
+- Screenshots and the index are gitignored, like the manual they belong to.
+
+## 056 — Sharded, not slimmed: 9.8 minutes measured
+
+**Date:** 2026-09-13
+**Status:** Accepted
+
+### Decision
+
+Full suite: 280 tests, **6.5 minutes** (388s) wall clock at three workers,
+measured rather than estimated. The first measurement was 9.8 minutes, against
+a scratch database carrying 364 leftover commitments due today — see below. Split by area rather than made cheaper:
+
+- `npm run test:e2e:fast` — the `app` and `contract` projects. The structural
+  gates and all 104 API contract cases, a little over two minutes. This is the
+  pull-request run.
+- `npm run test:e2e` — everything, including the walkthrough. Nightly.
+
+### Why not reduce per-spec database work
+
+That was the alternative and it is the wrong trade here. The fixtures ARE the
+coverage: three of the four gaps this suite has closed were fixture problems
+wearing the costume of untestable surfaces — the overseer's pages, recovery
+mode, and the staleness banner were each recorded as "no spec can reach this"
+when what was missing was a seeded account. Making the fixtures thinner to save
+wall-clock would buy minutes with exactly the thing that has been finding bugs.
+
+Sharding costs nothing but a second workflow, and the fast subset still runs
+every structural scanner and all 104 API contract cases.
+
+### What the measurement itself found
+
+`/api/today` was taking **six seconds** and returning **266KB**. The scratch
+database had accumulated 364 commitments due today: every spec creates fixtures
+due later today so they appear on Today, and nothing closed them — the tidy
+swept the OVERDUE backlog, and these were never overdue.
+
+Two consequences, one for the suite and one for the product:
+
+- `npm run fixture:tidy` now DELETES leftovers by title prefix rather than
+  abandoning them. Abandoning changed nothing, because `alsoToday` returns
+  everything due today whatever its status — the Today component splits open
+  from done. Deleting took the payload to 50KB.
+- **`alsoToday` is unbounded, and closed commitments stay in it.** On real data
+  that is a handful of rows a day and harmless. It is still the only
+  unbounded read on the most-opened screen in the app, next to a `listOverdue`
+  that is deliberately paged to 15 for exactly this reason. Worth a cap before
+  a year of history sits behind it; not changed here, because this change is
+  about the suite.
+
+Three specs were failing on the consequences of that slowness and have been
+fixed properly rather than retried: a poll budget larger than its own test
+timeout can never be spent, and two assertions allowed five seconds for a
+four-second round trip.
+
+### Consequences
+
+- Traces at `on-first-retry`, with one retry locally rather than zero — the
+  trace setting was previously unreachable outside CI, which is where the
+  failures were being read.
+- Workers stay at three. Six saturated one `next start` against an M0 cluster
+  and produced two or three different failures per run, each reporting that
+  some element was missing.

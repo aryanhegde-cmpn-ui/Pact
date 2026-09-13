@@ -1016,6 +1016,65 @@ That comparison costs **one indexed `_id` lookup per request**, deduped by
 every time, by definition. It also fixed a latent bug — a role changed after
 sign-in used to take up to ninety days to take effect.
 
+## The test suite
+
+**Coverage is registered, never inferred.** `e2e/coverage/` lists every page
+route and every API route, and `src/lib/route-coverage.test.ts` fails when one
+is missing. A route loaded while something else is under test is NOT covered:
+every spec in this suite signs in through the landing page, and it still
+shipped with a 600px form on a 390px screen.
+
+**A registered test that skips counts as absent.** `environment.spec.ts` goes
+red when a conditional skip is about to fire, because a suite that quietly
+stops asserting reports success for work it did not do. Registration gets the
+same treatment, and `route-coverage-gate.test.ts` watches the gate fail against
+a planted route and a skipped registration -- a gate nobody has seen fail is a
+gate nobody knows the shape of.
+
+**Every API route answers for four cases**: success shape, unauthenticated,
+authorised-but-forbidden, and validation. They are four different code paths --
+the handler, the guard's session check, the guard's capability check, the
+schema -- and a route with a green success test and nothing else is a route
+whose authorisation has never run under test. Where a case cannot exist, the
+registration says so with a reason; a missing field is indistinguishable from
+an oversight.
+
+`e2e/api-contract.spec.ts` generates the three refusals from the registry,
+titled by shared builders so registered and emitted are the same string by
+construction. Two things it got wrong are worth not repeating:
+`request.newContext()` INHERITS the project's storage state, so an "anonymous"
+context is signed in unless told otherwise; and a malformed body sent with a
+GET tests nothing, because GET ignores bodies and answers 200.
+
+**The walkthrough is one linear run and it is the manual's screenshots.**
+`e2e/walkthrough.spec.ts` walks the product in the order a person meets it,
+capturing each step at 390px and 1440px into `docs/private/screenshots/` and
+generating `docs/private/SCREENSHOTS.md`. Section names match OPERATING.md's
+headings. It carries the success case for every route that CHANGES something,
+because a success is only meaningful with the state around it.
+
+It runs LAST, in its own project, depending on every project that reads the
+fixture -- it revokes the overseer, re-invites, takes a holiday and re-plans a
+phase. Playwright's `dependencies` is the only ordering available, and without
+it six workers interleave the files.
+
+**The suite writes, so it asserts its target first.** `npm run e2e:assert-scratch`
+runs in the primary setup and refuses anything not recognisably a scratch
+database -- by connection string, never NODE_ENV, because a local run against a
+production URI has a development NODE_ENV.
+
+**Runtime, measured rather than assumed: 6.5 minutes for the full 280-test
+suite at three workers.** Sharded rather than slimmed: `npm run test:e2e:fast`
+runs the `app` and `contract` projects -- the structural gates and the whole API
+contract, a little over two minutes -- and the full run including the
+walkthrough is the nightly. Reducing per-spec database work was the alternative
+and was rejected: the fixtures ARE the coverage here, and three of the four
+gaps this suite has closed were fixture problems wearing the costume of
+untestable surfaces.
+
+Traces are on `on-first-retry` with one retry locally, so a flake produces a
+replayable recording rather than a mystery.
+
 ## Deployment constraints
 
 Deployed on **Vercel Hobby**. This is a hard constraint on architecture:
@@ -1363,6 +1422,10 @@ with a sheet that lists them, and a keyboard-navigable Today.
 Working, additionally: self-service account recovery with single-use codes, a
 sign-in lockout shared between the password and code paths, and password resets
 that end every existing session.
+
+Working, additionally: a coverage gate over every route and API, a linear
+walkthrough that generates the manual's screenshots, and the notification chain
+covered to the service-worker boundary.
 
 Not built yet: the video player and the behaviour engine.
 

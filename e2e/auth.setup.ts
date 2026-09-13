@@ -26,6 +26,20 @@ setup.skip(!IDENTIFIER || !PASSWORD, 'Set PACT_E2E_IDENTIFIER and PACT_E2E_PASSW
 
 setup('authenticate', async ({ page, baseURL }) => {
   /**
+   * THE TARGET IS ASSERTED BEFORE ANYTHING IS WRITTEN.
+   *
+   * The suite creates, abandons, revokes and resets. Every one of those is
+   * correct against a fixture and unforgivable against the real record, and
+   * the only thing standing between the two is the connection string -- which
+   * these scripts read from the shell before `.env.local`, so an export left
+   * over from an earlier command is enough to redirect them.
+   *
+   * It throws on anything not recognisably a scratch database, which fails
+   * this setup project and therefore the whole run.
+   */
+  execFileSync('npm', ['run', 'e2e:assert-scratch'], { stdio: 'pipe', env: process.env });
+
+  /**
    * Closes the backlog the last run left behind, before anything reads it.
    *
    * The suite creates commitments due later today and does not always finish
