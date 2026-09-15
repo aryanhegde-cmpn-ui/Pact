@@ -21,7 +21,9 @@ import { ConsequenceModel } from '@/lib/db/models/consequence';
 import { FocusSessionModel } from '@/lib/db/models/focus-session';
 import { InterviewPrepItemModel } from '@/lib/db/models/interview-prep-item';
 import { PhaseModel } from '@/lib/db/models/phase';
+import { RecoveryCodeModel } from '@/lib/db/models/recovery-code';
 import { RecoverySessionModel } from '@/lib/db/models/recovery-session';
+import { RecoveryTokenModel } from '@/lib/db/models/recovery-token';
 import { RewardModel } from '@/lib/db/models/reward';
 import { VacationModel } from '@/lib/db/models/vacation';
 import { ResourceModel } from '@/lib/db/models/resource';
@@ -57,6 +59,13 @@ const MODELS = [
   ['rewards', RewardModel],
   ['consequences', ConsequenceModel],
   ['vacations', VacationModel],
+  /**
+   * Account recovery. The token's unique key and its TTL sweep both live here:
+   * without the unique index two concurrent resets could claim one token, and
+   * without the TTL the collection accumulates spent bearer credentials.
+   */
+  ['recovery_codes', RecoveryCodeModel],
+  ['recovery_tokens', RecoveryTokenModel],
 ] as const;
 
 async function main(): Promise<void> {

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { dueLaterToday } from './fixtures';
+
 /**
  * Motion, in the browser.
  *
@@ -112,7 +114,7 @@ async function givenSomethingToComplete(page: Page, label: string): Promise<void
     data: {
       title: `${label} ${Date.now()}`,
       outcome: 'The motion suite has something to complete',
-      dueAt: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(),
+      dueAt: dueLaterToday(),
       estimateMinutes: 10,
       priority: 'maintenance',
     },
@@ -170,7 +172,7 @@ test.describe('with reduced motion', () => {
       data: {
         title: `Focus fixture ${Date.now()}`,
         outcome: 'The focus route has something to open',
-        dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+        dueAt: dueLaterToday(),
         estimateMinutes: 20,
         priority: 'maintenance',
       },

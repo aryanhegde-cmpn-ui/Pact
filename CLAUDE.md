@@ -856,7 +856,12 @@ database while production stayed locked out, and nothing on screen said so.
   environment am I actually talking to, and who am I in it", and it names an
   account missing `usernameLower` or `ownerId`, because "the migration never
   ran here" is the answer often enough to be worth a line.
-- **`npm run access:reset`** — the recovery path. Prints the target, lists the
+- **`npm run recovery:generate`** — issues an account its ten recovery codes,
+  printed once and written nowhere. Needed as a script as well as a settings
+  page because of the ordering: an account that predates recovery codes has
+  none, and signing in to generate them assumes you can sign in.
+- **`npm run access:reset`** — the operator's recovery path, for somebody
+  else's account. Prints the target, lists the
   accounts, **refuses without `--confirm`**, generates a strong password,
   prints it once, never writes it to a file, and clears that account's lockout
   rows. It deliberately does _not_ call `assertSafeToMutate`: it is a
@@ -956,6 +961,60 @@ The more important half, and the one a scan cannot fully hold.
 interactive element on Today, that the ring is visible, that focus is trapped
 and restored, and that the whole shortcut vocabulary typed into a text field
 does nothing but type.
+
+## Account recovery
+
+**Ten single-use codes, hashed like passwords, shown exactly once.** No email
+provider, no reset link, no new dependency — see docs/decisions.md 053, which
+reverses the _consequence_ of 007 while keeping its reasoning: every objection
+007 raised was about email, and none of it applies to a credential the user
+already holds. 007 also named its own trigger, and the overseer fired it — a
+second user with no shell, who cannot be asked to run `change:password`.
+
+- **The alphabet excludes 0, O, 1, I and L.** These are transcribed by hand, so
+  every confusable pair is removed rather than corrected on input: a code that
+  silently becomes a different code is worse than one that is rejected. Case,
+  spaces and hyphens ARE stripped — they are display format, not secret.
+- **Both fields arrive together at `/recover`.** An identifier-first step would
+  answer "does this account exist" before any secret was presented, which is an
+  enumeration oracle on a public page.
+- **The token between the two steps is not a session and must never become
+  one.** A row in a collection exactly one module reads, in a request body
+  rather than a cookie, `purpose` an enum of one member, ten minutes, consumed
+  on use. `src/lib/account-recovery-invariants.test.ts` fails if any other
+  module imports it, and if the guard, the auth config or the proxy so much as
+  mentions it.
+- **Regeneration switches a pointer.** Codes carry a `setId` and validity is
+  "matches the user's current one", so one write retires the whole previous set
+  — which no ordering of "invalidate the old, insert the new" can promise.
+- **The reset consumes the code, not the check**, so an interrupted flow costs
+  nothing. Single use comes from the conditional update at the end.
+- **THE LOCKOUT COUNTER IS SHARED WITH SIGN-IN**, keyed on the resolved user
+  id. A separate counter would make the lockout decorative: ten guesses at the
+  password, ten at a code, ten more once the first lock lifted. Both directions
+  are asserted.
+- Unknown identifier, wrong code, consumed code, locked account and expired
+  token return **one byte-identical response**, as sign-in already does. A
+  decoy argon2 verification runs when the identifier matched nobody, so an
+  unknown account does not return measurably faster than a wrong code.
+- **There is no route that reads codes back.** They exist in plaintext in one
+  response — generation, or invite redemption — and nowhere afterwards. A "show
+  them again" endpoint would hand the recovery credential to whoever is already
+  signed in on a borrowed laptop, which is the situation the codes exist to
+  survive.
+- **The join flow will not continue until the new overseer acknowledges them.**
+  An account created without its codes shown has no way back in.
+
+**A reset ends every existing session.** Auth.js sessions are ninety-day JWTs
+that nothing can revoke, so `currentActor()` compares the sign-in time stamped
+in the token against `sessionsValidFrom` on the account. Deliberately NOT the
+JWT's own `iat`: `updateAge` re-issues the token daily with a fresh one, so an
+attacker need only keep the tab open for the invalidation to expire.
+
+That comparison costs **one indexed `_id` lookup per request**, deduped by
+`cache`. Knowing whether a session predates a reset means reading the account
+every time, by definition. It also fixed a latent bug — a role changed after
+sign-in used to take up to ninety days to take effect.
 
 ## Deployment constraints
 
@@ -1300,6 +1359,10 @@ overseer's pages, recovery mode and the staleness banner.
 Working, additionally: operator tooling that names its target before acting, a
 password-recovery command, environment reporting by name, keyboard shortcuts
 with a sheet that lists them, and a keyboard-navigable Today.
+
+Working, additionally: self-service account recovery with single-use codes, a
+sign-in lockout shared between the password and code paths, and password resets
+that end every existing session.
 
 Not built yet: the video player and the behaviour engine.
 

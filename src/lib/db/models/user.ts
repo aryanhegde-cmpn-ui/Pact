@@ -46,6 +46,31 @@ const userSchema = new mongoose.Schema(
     ownerId: { type: String, default: null, index: true },
     createdAt: { type: Date, required: true, default: () => new Date() },
     lastLoginAt: { type: Date, default: null },
+
+    /**
+     * Which set of recovery codes is live.
+     *
+     * A code is valid only when its `setId` matches this. Regenerating writes
+     * the new codes first and then switches this pointer in one update, so
+     * invalidating the previous set is a single atomic write rather than a
+     * pair that could leave the account with two live sets or none.
+     *
+     * Null for an account that has never generated any.
+     */
+    recoveryCodeSetId: { type: String, default: null },
+
+    /**
+     * Sessions issued before this instant are dead.
+     *
+     * Auth.js sessions are JWTs: stateless, 90 days, and nothing on the server
+     * can reach out and revoke one. Resetting a password has to invalidate
+     * them -- a reset that leaves whoever knew the old password signed in on
+     * their own device has not recovered the account from anybody.
+     *
+     * So the check is a comparison instead: `currentActor()` reads this and
+     * refuses any token minted earlier. See the note there about the cost.
+     */
+    sessionsValidFrom: { type: Date, default: null },
   },
   { collection: 'users', versionKey: false },
 );

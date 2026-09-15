@@ -216,7 +216,9 @@ logged out of rather than something you open.
 ## 007 — No password reset flow; operator scripts instead
 
 **Date:** 2026-09-04
-**Status:** Accepted
+**Status:** Accepted, then partially reversed by 053 — the reasoning about
+EMAIL still holds and no reset email was ever built; recovery codes replace the
+"run a script" consequence.
 
 ### Decision
 
@@ -239,6 +241,9 @@ legitimately.
 - Losing the password means running a script, not clicking a link.
 - If the app ever gains a second user who is not the operator, this decision
   has to be revisited — that is the trigger, not user count on its own.
+
+**That trigger fired.** The overseer is a second user who is not the operator,
+has no shell access, and cannot be asked to run `change:password`. See 053.
 
 ## 008 — One mechanism for the app's own origin: trustHost, not AUTH_URL
 
@@ -1938,3 +1943,91 @@ comes back on top of it.
   top of the page.
 - Inline disclosures are deliberately not trapped. They are not dialogs, and
   trapping focus in one would be a bug rather than a courtesy.
+
+## 053 — Recovery codes, not reset emails
+
+**Date:** 2026-09-12
+**Status:** Accepted — reverses the consequence of 007 while keeping its reasoning
+
+### Decision
+
+Ten single-use recovery codes per account, generated as a set, hashed with the
+same argon2 configuration as passwords, shown exactly once. A "Forgot password"
+link on the sign-in page leads to `/recover`, which takes an identifier and a
+code together, issues a ten-minute single-purpose token, and sets a new
+password.
+
+No email provider. No reset link. No new dependency.
+
+### Why
+
+Decision 007 said a reset flow was not worth its cost: an email provider, a
+token model, rate limiting, and tests for all the ways those fail, to serve one
+user with shell access to a machine that can run a script.
+
+**Every clause of that is still true about EMAIL, and none of it is true about
+codes.** There is no provider to sign up for, no deliverability to debug, no
+inbox to compromise, and no link that lands in spam on the one day it matters.
+A code is a bearer credential the user already holds, which is the thing the
+whole email chain spends four moving parts trying to manufacture.
+
+007 also named its own trigger: "if the app ever gains a second user who is not
+the operator, this decision has to be revisited". It did. The overseer has no
+shell, no `MONGODB_URI`, and no way to ask for one — and an account with write
+access to somebody else's accountability arrangement that silently becomes
+unrecoverable is worse than no arrangement.
+
+And the operator's own path had already proved fragile in practice: recovering
+production took a script that had to be pointed at the right database, which is
+the failure decision 048 exists because of.
+
+### How it is built
+
+- **The alphabet excludes 0, O, 1, I and L.** These get transcribed by hand.
+  Every visually confusable pair is removed rather than "helpfully" corrected
+  on input, because a code that silently becomes a different code is worse than
+  one that is rejected.
+- **Both fields arrive together.** An identifier-first step would answer "does
+  this account exist" before any secret was presented — an enumeration oracle on
+  a public page. One form, one submit, one message.
+- **The token is not a session.** It is a row in a collection exactly one module
+  reads, carried in a request body rather than a cookie, with a `purpose` enum
+  of one member. A scanner fails on any other module importing it, and on the
+  guard, the auth config or the proxy so much as mentioning it. Signing the user
+  in after the code check — the obvious alternative — hands a ninety-day session
+  to somebody who has proved only that they hold a code.
+- **Regeneration is a pointer switch.** Codes carry a `setId`; validity is
+  "matches the user's current one". One write retires the whole previous set,
+  which no ordering of "invalidate the old, insert the new" can promise.
+- **The code is consumed by the reset, not by the check**, so an interrupted
+  flow costs nothing. Single use is enforced by the conditional update at the
+  end, which is also what makes two tokens minted from one code worth one
+  password set between them.
+- **A reset ends every session**, via `sessionsValidFrom` compared against the
+  sign-in time stamped in the token. Compared against the JWT's own `iat` it
+  would un-invalidate itself: `updateAge` re-issues the token daily with a
+  fresh `iat`, so an attacker need only keep the tab open.
+
+### The cost, stated
+
+`currentActor()` now reads the account on every request rather than only on an
+anomalous path — one indexed `_id` lookup, deduped per request. Knowing whether
+a session predates a reset means reading the account every time, by definition;
+there is no version of this that is free. It also fixes a latent bug: a role
+changed after sign-in used to take up to ninety days to take effect.
+
+### Consequences
+
+- Recovery attempts share the sign-in lockout counter, keyed on the resolved
+  user id. A separate counter would make the lockout decorative — ten guesses
+  at the password, ten at a code, ten more once the first lock lifted. Asserted
+  in both directions.
+- Unknown identifier, wrong code, consumed code, locked account and expired
+  token return one byte-identical response, as sign-in already does.
+- The join flow shows the new overseer their codes and will not continue until
+  they say they have saved them. An account created without them has no way
+  back in.
+- There is deliberately **no route that reads codes back**. They exist in
+  plaintext in one response and nowhere afterwards.
+- `npm run change:password` and `npm run access:reset` stay. They are the
+  operator's tools for somebody else's account, which is a different job.

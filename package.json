@@ -33,6 +33,8 @@
     "seed:recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-recovery.ts",
     "users:list": "NODE_OPTIONS=--conditions=react-server tsx scripts/users-list.ts",
     "access:reset": "NODE_OPTIONS=--conditions=react-server tsx scripts/access-reset.ts",
+    "recovery:generate": "NODE_OPTIONS=--conditions=react-server tsx scripts/recovery-generate.ts",
+    "fixture:tidy": "NODE_OPTIONS=--conditions=react-server tsx scripts/tidy-fixture.ts",
     "env:check": "NODE_OPTIONS=--conditions=react-server tsx scripts/env-check.ts",
     "env:template": "NODE_OPTIONS=--conditions=react-server tsx scripts/env-template.ts"
   },

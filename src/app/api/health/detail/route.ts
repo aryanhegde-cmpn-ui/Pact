@@ -8,6 +8,7 @@ import { isPushConfigured } from '@/lib/notifications/push';
 import { getSettings } from '@/lib/notifications/settings';
 import { DISPATCH_STALE_MINUTES } from '@/lib/schemas/push';
 import { connectToDatabase } from '@/lib/db/mongoose';
+import { currentActor, type Actor } from '@/lib/api/guard';
 import { buildInfo, checkEnv, EnvironmentError, getEnv } from '@/lib/env';
 import { formatWallClock, utcOffset } from '@/lib/time';
 
@@ -78,8 +79,12 @@ export async function GET(): Promise<Response> {
    * to be able to report it.
    */
   let session: Session | null = null;
+  let actor: Actor | null = null;
   try {
-    session = await auth();
+    // Both: the session carries the display fields, `currentActor()` decides
+    // whether it counts. A session invalidated by a password reset must not be
+    // reported here as valid.
+    [session, actor] = await Promise.all([auth(), currentActor()]);
   } catch (error) {
     return Response.json(
       {
@@ -99,7 +104,7 @@ export async function GET(): Promise<Response> {
 
   // 401 before anything else touches the database: an unauthenticated caller
   // must not be able to make this endpoint do work.
-  if (!session?.user) {
+  if (!session?.user || !actor) {
     return Response.json(
       { status: 'unauthenticated', session: { valid: false }, configuration },
       { status: 401, headers: NO_STORE },
@@ -118,7 +123,7 @@ export async function GET(): Promise<Response> {
   }
 
   // Health detail reports on the caller's own scope, never the whole cluster.
-  const ownerId = session.user.ownerId ?? session.user.id;
+  const ownerId = actor.ownerId;
   let userCount: number | null = null;
   let databaseError: string | null = null;
   let dispatch: {

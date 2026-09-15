@@ -55,7 +55,15 @@ test('offers three slots and nothing to scroll', async ({ page }) => {
 
 test('takes the planning surfaces away and leaves settings', async ({ page }) => {
   for (const path of ['/study', '/study/curriculum', '/postponements', '/week']) {
-    await page.goto(path);
+    /**
+     * `domcontentloaded`, not the default `load`.
+     *
+     * Every one of these paths redirects immediately, and waiting for `load`
+     * on a navigation that is superseded by a redirect aborts with
+     * ERR_ABORTED -- intermittently, and more often the busier the machine is.
+     * The assertion below is what actually decides the test.
+     */
+    await page.goto(path, { waitUntil: 'domcontentloaded' });
     await expect(page, `${path} should redirect during recovery`).toHaveURL(/\/dashboard$/);
   }
 

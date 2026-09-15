@@ -2,6 +2,8 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
+import { cache } from 'react';
+
 import { ZodError } from 'zod';
 
 import { auth } from '@/lib/auth';
@@ -52,23 +54,46 @@ export async function currentActor(): Promise<Actor | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const claimed = session.user.role ?? 'primary';
+  const stored = await accountForRequest(session.user.id);
 
   /**
-   * A stale token's role is re-read from the database rather than trusted.
+   * A SESSION OLDER THAN THE LAST PASSWORD RESET IS DEAD.
    *
-   * The role is copied into the JWT at sign-in and never refreshed, and the
-   * token lives 90 days. A session minted while `seedUser` still wrote
-   * `role: 'owner'` carries a value that is in no enum, and every guarded
-   * route then failed -- 500 before `can()` was made to fail closed, 403
-   * afterwards, and neither is what the user should get for having signed in
-   * before a bug was fixed.
+   * Auth.js sessions are JWTs -- stateless, ninety days, and nothing on the
+   * server can reach out and revoke one. Recovering an account has to end the
+   * sessions of whoever knew the old password, or the recovery has taken
+   * nothing away from them. So the revocation is a comparison made here
+   * instead: when the session began, against when the account was last reset.
    *
-   * Only on the anomalous path, so the ordinary request costs no extra query.
-   * The database is the source of truth for role; the token is a cache, and
-   * this is the cache being wrong.
+   * A session with no stamp at all counts as older than any reset. Those are
+   * the tokens minted before this existed, and "sign in again" is the right
+   * answer for one of them once a reset has happened.
    */
-  const role = isRole(claimed) ? claimed : await roleFromDatabase(session.user.id);
+  if (stored?.sessionsValidFrom) {
+    const signedInAt = session.user.signedInAt ?? 0;
+    if (signedInAt < stored.sessionsValidFrom.getTime()) return null;
+  }
+
+  /**
+   * The role is read rather than trusted, on every request.
+   *
+   * It is copied into the JWT at sign-in and the token lives ninety days, so
+   * the token is a cache and the database is the source of truth. A session
+   * minted while `seedUser` still wrote `role: 'owner'` carried a value in no
+   * enum and failed every guarded route -- 500 before `can()` was made to fail
+   * closed, 403 afterwards, and neither is what somebody should get for having
+   * signed in before a bug was fixed.
+   *
+   * THE COST IS ONE INDEXED `_id` LOOKUP PER REQUEST, and it is deliberate.
+   * This used to happen only on the anomalous path, which was cheaper and
+   * could not support revocation at all: knowing whether a session predates a
+   * reset means reading the account every time, by definition. It is the
+   * cheapest query MongoDB has, it is deduped per request by `cache`, and the
+   * guard already reads the relationship for an overseer and the running
+   * session for a locked capability.
+   */
+  const claimed = session.user.role ?? 'primary';
+  const role: Role = isRole(stored?.role) ? stored.role : isRole(claimed) ? claimed : 'primary';
 
   return {
     userId: session.user.id,
@@ -78,22 +103,22 @@ export async function currentActor(): Promise<Actor | null> {
 }
 
 /**
- * The role as stored, for a session whose token carries one the matrix does
- * not recognise.
+ * The account behind this request, read once however many times it is asked for.
  *
- * Falls back to `primary` only when the user is gone, which cannot happen for
- * an authenticated session -- and `primary` is the least surprising answer for
- * a single-user app, not a grant of anything: every capability is still
- * checked against the matrix afterwards.
+ * `cache` dedupes within a render pass, which matters because a page under the
+ * shell resolves the actor and so does the layout above it.
  */
-async function roleFromDatabase(userId: string): Promise<Role> {
-  const { UserModel } = await import('@/lib/db/models/user');
-  await connectToDatabase();
+const accountForRequest = cache(
+  async (userId: string): Promise<{ role: string; sessionsValidFrom: Date | null } | null> => {
+    const { UserModel } = await import('@/lib/db/models/user');
+    await connectToDatabase();
 
-  const row = await UserModel.findOne({ _id: userId }, { role: 1 }).lean();
+    const row = await UserModel.findOne({ _id: userId }, { role: 1, sessionsValidFrom: 1 }).lean();
+    if (!row) return null;
 
-  return isRole(row?.role) ? row.role : 'primary';
-}
+    return { role: row.role, sessionsValidFrom: row.sessionsValidFrom ?? null };
+  },
+);
 
 /**
  * Guards a handler by CAPABILITY, never by role.
@@ -224,13 +249,22 @@ export function withSession(
   handler: (context: { userId: string; now: Date }) => Promise<Response>,
 ): () => Promise<Response> {
   return async () => {
-    const session = await auth();
-    if (!session?.user) {
+    /**
+     * `currentActor()`, not `auth()`.
+     *
+     * There is ONE definition of "signed in" in this app and it is that
+     * function, because it is the only one that knows about a password reset.
+     * A route reading the JWT directly would accept a session the guard
+     * rejects -- which is not a cosmetic inconsistency: it is an endpoint that
+     * still works for whoever knew the old password.
+     */
+    const actor = await currentActor();
+    if (!actor) {
       return jsonError('Sign in required.', 401);
     }
 
     try {
-      return await handler({ userId: session.user.id, now: new Date() });
+      return await handler({ userId: actor.userId, now: new Date() });
     } catch (error) {
       return translateError(error);
     }

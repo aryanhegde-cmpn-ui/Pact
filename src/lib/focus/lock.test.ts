@@ -34,6 +34,19 @@ vi.mock('@/lib/auth', () => ({
   auth: async () => (store.actor ? { user: { ...store.actor, id: store.actor.userId } } : null),
 }));
 
+/**
+ * The guard reads the account on every request now, to see whether the session
+ * predates a password reset. Mocked here rather than left to the real model,
+ * which would try to reach a database this test does not have.
+ */
+vi.mock('@/lib/db/models/user', () => ({
+  UserModel: {
+    findOne: () => ({
+      lean: async () => (store.actor ? { role: store.actor.role, sessionsValidFrom: null } : null),
+    }),
+  },
+}));
+
 const { requireCapability } = await import('@/lib/api/guard');
 
 /** A handler that records whether it ran at all. */

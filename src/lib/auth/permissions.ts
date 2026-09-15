@@ -62,7 +62,18 @@ export type Capability =
   | 'relationship:invite'
   | 'relationship:revoke'
   | 'settings:read'
-  | 'settings:write';
+  | 'settings:write'
+  /**
+   * Issuing yourself a fresh set of recovery codes.
+   *
+   * BOTH roles hold it, which is not a loosening: it is an action on your OWN
+   * login, and an overseer account with no way back in is an account that
+   * quietly stops being able to hold anyone accountable. Nothing about it
+   * reaches the primary's record -- the route resolves the target from the
+   * session and accepts no user id, so holding this capability grants nothing
+   * over anybody else.
+   */
+  | 'recovery:manage';
 
 /**
  * The matrix.
@@ -99,6 +110,7 @@ const MATRIX: Record<Role, readonly Capability[]> = {
     'relationship:revoke',
     'settings:read',
     'settings:write',
+    'recovery:manage',
   ],
 
   /**
@@ -117,7 +129,7 @@ const MATRIX: Record<Role, readonly Capability[]> = {
    * instead, which is both safer and simpler than filtering events per role at
    * every call site.
    */
-  overseer: ['progress:read', 'consequence:read', 'consequence:write'],
+  overseer: ['progress:read', 'consequence:read', 'consequence:write', 'recovery:manage'],
 };
 
 /**

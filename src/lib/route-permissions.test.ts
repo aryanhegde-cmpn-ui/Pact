@@ -52,6 +52,10 @@ const UNGUARDED: Record<string, string> = {
   'api/push/test/route.ts': 'Session-guarded directly; sends only to the caller own devices.',
   'api/relationship/redeem/route.ts':
     'Unauthenticated by necessity: the person redeeming has no account. The single-use token is the credential.',
+  'api/recovery/verify/route.ts':
+    'Unauthenticated by necessity: the caller cannot sign in. The recovery code is the credential, against the sign-in lockout counter.',
+  'api/recovery/reset/route.ts':
+    'Unauthenticated by necessity. The single-purpose recovery token is the credential, and it authorises exactly one password write.',
 };
 
 describe('every route is guarded', () => {

@@ -3,13 +3,23 @@
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
+import { RecoveryCodesPanel } from '@/components/recovery-codes/codes-panel';
+
 /** Creates the overseer account from a single-use invite. */
 export function RedeemInviteForm({ initialToken }: { initialToken: string }): React.JSX.Element {
   const router = useRouter();
   const [token, setToken] = useState(initialToken);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  /**
+   * The codes, held only until they are acknowledged.
+   *
+   * Non-null IS the done state: an account exists the moment this is set, and
+   * there is no screen between creating it and showing these. An account
+   * created without its codes shown is an account with no way back in -- there
+   * is no reset email, and an overseer cannot ask the primary to run a script.
+   */
+  const [codes, setCodes] = useState<string[] | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -29,13 +39,17 @@ export function RedeemInviteForm({ initialToken }: { initialToken: string }): Re
           displayName: String(form.get('displayName') ?? '').trim() || undefined,
         }),
       });
-      const body = (await response.json()) as { error?: string; details?: { message: string }[] };
+      const body = (await response.json()) as {
+        error?: string;
+        details?: { message: string }[];
+        recoveryCodes?: string[];
+      };
 
       if (!response.ok) {
         setError(body.details?.[0]?.message ?? body.error ?? 'That did not work.');
         return;
       }
-      setDone(true);
+      setCodes(body.recoveryCodes ?? []);
     } catch {
       setError('Could not reach the server.');
     } finally {
@@ -43,18 +57,24 @@ export function RedeemInviteForm({ initialToken }: { initialToken: string }): Re
     }
   }
 
-  if (done) {
+  if (codes) {
     return (
-      <div className="border-edge bg-surface rounded-md border p-md">
-        <p className="text-sm font-medium">Account created</p>
-        <p className="text-text/60 mt-2xs text-xs">Sign in with the username you chose.</p>
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          className="bg-signal mt-md min-h-11 w-full rounded px-md text-sm font-medium text-ground"
-        >
-          Go to sign in
-        </button>
+      <div className="flex flex-col gap-lg">
+        <div className="border-edge bg-surface rounded-md border p-md">
+          <p className="text-sm font-medium">Account created</p>
+          <p className="text-text/60 mt-2xs text-xs">Sign in with the username you chose.</p>
+        </div>
+
+        {/*
+          The ONLY way past this screen is the acknowledgement. No skip, no
+          "remind me later", no route that reads the codes back afterwards --
+          all three would turn a saved credential into an unsaved one.
+        */}
+        <RecoveryCodesPanel
+          codes={codes}
+          onAcknowledged={() => router.push('/')}
+          continueLabel="Go to sign in"
+        />
       </div>
     );
   }

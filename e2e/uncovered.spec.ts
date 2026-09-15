@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { dueLaterToday } from './fixtures';
+
 /**
  * The surfaces the rest of the suite structurally cannot see.
  *
@@ -72,7 +74,7 @@ test.describe('the full-screen session route', () => {
       data: {
         title: `Session fixture ${Date.now()}`,
         outcome: 'The full-screen route has something to open',
-        dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+        dueAt: dueLaterToday(),
         estimateMinutes: 25,
         priority: 'maintenance',
       },

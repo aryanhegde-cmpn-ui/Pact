@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+
 import { expect, test as setup } from '@playwright/test';
 
 /**
@@ -23,6 +25,18 @@ export const STORAGE_STATE = 'test-results/.auth/primary.json';
 setup.skip(!IDENTIFIER || !PASSWORD, 'Set PACT_E2E_IDENTIFIER and PACT_E2E_PASSWORD to run.');
 
 setup('authenticate', async ({ page, baseURL }) => {
+  /**
+   * Closes the backlog the last run left behind, before anything reads it.
+   *
+   * The suite creates commitments due later today and does not always finish
+   * them, so the primary's overdue count climbs run after run until it crosses
+   * the recovery threshold -- at which point `/dashboard` is REPLACED and a
+   * dozen specs fail reporting a missing element rather than a buried account.
+   *
+   * The script refuses to run against anything but a scratch database.
+   */
+  execFileSync('npm', ['run', 'fixture:tidy'], { stdio: 'pipe', env: process.env });
+
   const api = page.context().request;
 
   // Auth.js requires the CSRF token and its cookie to travel together; sharing

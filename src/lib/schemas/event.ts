@@ -82,6 +82,28 @@ export const eventTypeSchema = z.enum([
   'TASK_BLOCKED',
   /** A research budget ran out and a decision was made about it. Once per session. */
   'RESEARCH_BUDGET_SPENT',
+  // --- Account recovery ---------------------------------------------------
+  /**
+   * A set of recovery codes was issued, replacing any previous set.
+   *
+   * A password reset is a security-relevant event and the log is where those
+   * belong. Payloads carry counts and reasons, NEVER a code or a hash: the log
+   * is read by the behaviour engine and rendered in a timeline, and a
+   * credential that reaches either of those has escaped.
+   */
+  'RECOVERY_CODES_GENERATED',
+  'RECOVERY_CODE_CONSUMED',
+  'PASSWORD_RESET_VIA_RECOVERY',
+  /**
+   * A recovery attempt failed against a KNOWN account.
+   *
+   * Recorded only once the identifier has resolved, because an event needs an
+   * owner and an unknown identifier has none. Attempts against identifiers
+   * that match nobody are counted in the lockout collection instead, under a
+   * hash -- which is the same split sign-in already makes, for the same
+   * reason: the event log must not become a list of guessed usernames.
+   */
+  'RECOVERY_ATTEMPT_FAILED',
 ]);
 export type EventType = z.infer<typeof eventTypeSchema>;
 
@@ -100,6 +122,13 @@ export const entityTypeSchema = z.enum([
   'stake',
   /** A vacation period. */
   'vacation',
+  /**
+   * The login itself: recovery codes, password resets.
+   *
+   * Distinct from the person's work. These are facts about the credential, and
+   * the entityId is the user id rather than anything the plan knows about.
+   */
+  'account',
 ]);
 export type EntityType = z.infer<typeof entityTypeSchema>;
 

@@ -102,6 +102,18 @@ export const authConfig = {
          * request because revocation must be immediate.
          */
         token.ownerId = (user as { ownerId?: string }).ownerId ?? user.id ?? undefined;
+
+        /**
+         * Stamped HERE, on the sign-in pass, and nowhere else.
+         *
+         * `updateAge` re-issues this token every day, and a re-issue mints a
+         * fresh `iat`. Comparing a password reset against `iat` would
+         * therefore un-invalidate a session roughly a day after it was
+         * invalidated -- the attacker simply keeps the tab open. This value is
+         * copied forward untouched, so it still says when the session actually
+         * began.
+         */
+        token.signedInAt = Date.now();
       }
       return token;
     },
@@ -114,6 +126,7 @@ export const authConfig = {
         session.user.role = (token.role as string | undefined) ?? 'primary';
         session.user.ownerId =
           (token.ownerId as string | undefined) ?? (token.userId as string | undefined);
+        session.user.signedInAt = token.signedInAt as number | undefined;
       }
       return session;
     },

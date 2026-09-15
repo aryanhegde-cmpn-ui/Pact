@@ -4,9 +4,11 @@ import { PactError } from '@/lib/api/errors';
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
+import { generateRecoveryCodes } from '@/lib/auth/account-recovery';
 import { hashPassword } from '@/lib/auth/password';
 import { RelationshipModel } from '@/lib/db/models/relationship';
 import { UserModel } from '@/lib/db/models/user';
+import { formatRecoveryCode } from '@/lib/schemas/account-recovery';
 import { connectToDatabase } from '@/lib/db/mongoose';
 import { emailSchema, normaliseUsername, passwordSchema, usernameSchema } from '@/lib/schemas/user';
 
@@ -90,7 +92,7 @@ export interface RedeemInput {
 export async function redeemInvite(
   input: RedeemInput,
   now: Date = new Date(),
-): Promise<{ overseerUserId: string; primaryUserId: string }> {
+): Promise<{ overseerUserId: string; primaryUserId: string; recoveryCodes: string[] }> {
   await connectToDatabase();
 
   const username = usernameSchema.parse(input.username);
@@ -143,7 +145,22 @@ export async function redeemInvite(
       { $set: { overseerUserId: String(overseer._id) } },
     );
 
-    return { overseerUserId: String(overseer._id), primaryUserId: claimed.primaryUserId };
+    /**
+     * Recovery codes are issued as part of creating the account, not offered
+     * afterwards.
+     *
+     * An account created without them is an account with no way back in: there
+     * is no reset email, and the overseer cannot ask the primary to run a
+     * script for them. The join form shows these once and will not continue
+     * until the person says they have saved them.
+     */
+    const { codes } = await generateRecoveryCodes(String(overseer._id), now);
+
+    return {
+      overseerUserId: String(overseer._id),
+      primaryUserId: claimed.primaryUserId,
+      recoveryCodes: codes.map(formatRecoveryCode),
+    };
   } catch (error) {
     // The account could not be created (a duplicate username, say). Put the
     // invite back rather than burning it -- otherwise a typo costs the primary
