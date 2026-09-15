@@ -126,6 +126,28 @@ export async function GET(): Promise<Response> {
   const ownerId = actor.ownerId;
   let userCount: number | null = null;
   let databaseError: string | null = null;
+
+  /**
+   * Push configuration is asked about SEPARATELY, and never inside the
+   * database try.
+   *
+   * `isPushConfigured()` validates the VAPID keypair and THROWS on a malformed
+   * private key. Called from inside the block below, that throw was caught as
+   * a database error -- so a bad key made this endpoint report
+   * `database: { status: 'error' }` with a message about base64, and answer
+   * 503. On the one endpoint whose entire job is saying what is misconfigured,
+   * naming the wrong subsystem is worse than saying nothing.
+   */
+  let pushError: string | null = null;
+  const pushConfigured = (): boolean => {
+    try {
+      return isPushConfigured();
+    } catch (error) {
+      pushError = error instanceof Error ? error.message : String(error);
+
+      return false;
+    }
+  };
   let dispatch: {
     lastDispatchAt: string | null;
     minutesSince: number | null;
@@ -151,7 +173,7 @@ export async function GET(): Promise<Response> {
       // raises no alert -- so this is the only place a stopped scheduler is
       // visible without noticing that notifications stopped arriving.
       stale: minutesSince !== null && minutesSince > DISPATCH_STALE_MINUTES,
-      pushConfigured: isPushConfigured(),
+      pushConfigured: pushConfigured(),
       subscriptions: await PushSubscriptionModel.countDocuments({ ownerId }),
       pendingPush: await NotificationModel.countDocuments({
         ownerId,
@@ -185,6 +207,7 @@ export async function GET(): Promise<Response> {
       dispatch,
       configuration,
       database: databaseError ? { status: 'error', message: databaseError } : { status: 'ok' },
+      push: pushError ? { status: 'misconfigured', message: pushError } : { status: 'ok' },
       environment: buildInfo.environment,
       commit: buildInfo.commitSha,
       time: {

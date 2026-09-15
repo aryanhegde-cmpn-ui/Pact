@@ -146,22 +146,46 @@ test.describe('the staleness banner', () => {
       });
     });
 
+    /**
+     * Longer than the default 30s, because the poll below is allowed 60.
+     *
+     * A poll budget larger than the test timeout can never be spent: the test
+     * dies at 30 seconds reporting the assertion it was still waiting on,
+     * which looks like the assertion failing rather than the clock running
+     * out. `/api/today` against a loaded fixture takes about four seconds, so
+     * three re-reads is already most of a default timeout.
+     */
+    test.setTimeout(120_000);
+
     const banner = page.getByRole('status').filter({ hasText: 'showing saved data' });
 
     /**
      * Today re-reads the day when the tab comes back, which is the path a
-     * cached response actually arrives on. Dispatched in a poll because the
-     * listener is attached on hydration, and server-rendered markup is
-     * clickable well before that.
+     * cached response actually arrives on.
+     *
+     * WAITS FOR THE RESPONSE rather than polling blindly. The old version
+     * dispatched `focus` and counted immediately, in a loop: with `/api/today`
+     * taking four seconds against a loaded fixture, every iteration counted
+     * before its own re-read had landed, and a fifteen-second budget expired
+     * having never once looked after an answer arrived. It read as "the
+     * staleness banner is broken".
+     *
+     * The dispatch is still retried, because the listener is attached on
+     * hydration and server-rendered markup is interactive-looking well before
+     * that.
      */
     await expect
       .poll(
         async () => {
+          const reload = page.waitForResponse((response) => response.url().includes('/api/today'), {
+            timeout: 20_000,
+          });
           await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+          await reload.catch(() => undefined);
 
           return banner.count();
         },
-        { timeout: 15_000 },
+        { timeout: 60_000, intervals: [1_000] },
       )
       .toBe(1);
 
@@ -189,7 +213,13 @@ test.describe('the staleness banner', () => {
     await page.waitForTimeout(300);
     await banner.getByRole('button', { name: 'Retry' }).dispatchEvent('click');
 
-    await expect(banner).toHaveCount(0);
+    /**
+     * Generous, for the same reason the poll above is: clearing the banner
+     * requires a fresh `/api/today` to come back WITHOUT the stale header, and
+     * that request takes about four seconds against a loaded fixture. Five
+     * seconds of patience for a four-second round trip is a coin toss.
+     */
+    await expect(banner).toHaveCount(0, { timeout: 30_000 });
 
     /**
      * Torn down explicitly, ignoring in-flight routes.
@@ -229,11 +259,20 @@ test.describe('the service worker', () => {
  * ---------------------------------------------------------------------------
  * Recorded here rather than left to be rediscovered:
  *
- *   - Push delivery. It needs a real push service, a real subscription and a
- *     device to receive it. Everything up to the send is covered --
- *     `src/lib/notifications/dispatch.test.ts` claims rows, `push.test.ts`
- *     handles 404 and 410 and the failure count -- and the last hop is the
- *     part no amount of mocking makes real. It stays uncovered on purpose.
+ *   - Push delivery, and ONLY the last hop. It needs a real push service, a
+ *     real subscription and a device to receive it.
+ *
+ *     Everything before that is now covered: `queue.test.ts` enqueues,
+ *     re-enqueues across a moved deadline and revives a cancelled row;
+ *     `deliver.test.ts` and `dispatch.test.ts` cover the staleness cap and the
+ *     claim under concurrent invocations; `push.test.ts` handles 404, 410 and
+ *     the five-failure count; `service-worker.test.ts` runs the worker's own
+ *     `push` and `notificationclick` handlers, including both accountability
+ *     actions; and `e2e/notifications.spec.ts` covers the dispatch route and
+ *     its bearer token.
+ *
+ *     What remains is the hop between the push service and a handset. No
+ *     amount of mocking makes that real, and it stays uncovered on purpose.
  *
  * WHAT USED TO BE ON THIS LIST, AND WHAT MOVED IT
  * ---------------------------------------------------------------------------

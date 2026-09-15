@@ -21,6 +21,11 @@ lib-cov
 # Coverage directory used by tools like istanbul
 coverage
 *.lcov
+# ...but `e2e/coverage/` is the coverage REGISTRY, which is source. Without
+# this the gate's whole registry is silently untracked, and the gate passes
+# locally for a file nobody else has.
+!e2e/coverage/
+!e2e/coverage/**
 
 # nyc test coverage
 .nyc_output

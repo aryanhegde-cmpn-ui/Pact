@@ -67,7 +67,21 @@ test.describe('navigating by keyboard alone', () => {
      * A hundred-and-twenty-tab test passed on an empty fixture and reported the
      * footer links as unreachable on a real one.
      */
-    for (let index = 0; index < 400; index += 1) {
+    /**
+     * The bound is derived from the page, not guessed.
+     *
+     * Today lists every commitment due, each with four controls, and the
+     * fixture grows every time the suite runs. A fixed 400 was enough when the
+     * scratch database held a dozen commitments and silently too small at
+     * forty -- at which point the cycle never wrapped and the footer links were
+     * reported unreachable.
+     */
+    const stops = await page.evaluate(
+      () => document.querySelectorAll('button, a[href], select, input, textarea').length,
+    );
+    const limit = Math.max(200, stops * 3);
+
+    for (let index = 0; index < limit; index += 1) {
       await page.keyboard.press('Tab');
       const current = await focused(page);
       if (index > 0 && current.includes('Skip to content')) break;

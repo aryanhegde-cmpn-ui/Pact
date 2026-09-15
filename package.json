@@ -19,6 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:fast": "playwright test --project=app --project=contract",
+    "test:e2e:walkthrough": "playwright test --project=walkthrough",
     "seed:user": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-user.ts",
     "change:password": "NODE_OPTIONS=--conditions=react-server tsx scripts/change-password.ts",
     "seed:history": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-history.ts",
@@ -35,6 +37,7 @@
     "access:reset": "NODE_OPTIONS=--conditions=react-server tsx scripts/access-reset.ts",
     "recovery:generate": "NODE_OPTIONS=--conditions=react-server tsx scripts/recovery-generate.ts",
     "fixture:tidy": "NODE_OPTIONS=--conditions=react-server tsx scripts/tidy-fixture.ts",
+    "e2e:assert-scratch": "NODE_OPTIONS=--conditions=react-server tsx scripts/assert-scratch.ts",
     "env:check": "NODE_OPTIONS=--conditions=react-server tsx scripts/env-check.ts",
     "env:template": "NODE_OPTIONS=--conditions=react-server tsx scripts/env-template.ts"
   },
